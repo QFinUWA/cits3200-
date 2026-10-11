@@ -5,7 +5,7 @@ Research School of Finance, Actuarial Studies & Statistics (RSFAS) — the two
 ANU schools within scope. Every number below was computed directly from the
 current data files; the command is shown so it can be re-run.
 
-**Updated 5 Oct 2026 (v27).** Numbers below are from `final output/anu/`,
+**Updated 6 Oct 2026 (v29.2).** Numbers below are from `final output/anu/`,
 written by the shared `run.py`/`export.py` pipeline. This replaces the
 standalone `anu_scraper.py` output path (`output/anu_*.csv`) this page
 originally referenced — see README_ANU.md for where that standalone output
@@ -58,7 +58,7 @@ still have a validated ORCID on record.
 python -c "import csv; print(sum(1 for _ in csv.DictReader(open('final output/anu/anu_publications.csv', encoding='utf-8'))))"
 ```
 
-- **492 publications**, all journal articles. Non-journal-article types are
+- **491 publications**, all journal articles. Non-journal-article types are
   handled two different ways, not one — worth stating precisely rather
   than glossing over:
   - Items the profile parser can recognise as non-journal (a conference
@@ -92,7 +92,7 @@ python -c "import csv; print(sum(1 for _ in csv.DictReader(open('final output/an
     every ANU row) so a future fresh scrape can't reintroduce the same
     class of row again. The original 40-row list is unchanged and still
     applied alongside the new rule — see docs/DECISIONS.md's 24 Sep entry.
-- **481 of those 492 (97.8%) carry a real ABDC rating** — 173 A\*, 265 A,
+- **480 of those 491 (97.8%) carry a real ABDC rating** — 173 A\*, 264 A,
   36 B, 7 C, and 11 with no ABDC match (genuinely not on the ABDC list, a
   practitioner periodical awaiting a client decision, or a journal name
   that could not be verified — see docs/DECISIONS.md, 28 Sep).
@@ -105,12 +105,12 @@ python -c "import csv; from collections import Counter; print(Counter(r['quality
 
 | Field | Coverage | Note |
 |---|---|---|
-| year | 492/492 (100%) | for a row with a DOI, the DOI record's print (issue) year, else its issued year — the convention the pipeline already followed on 96 of 133 split cases, now applied to every DOI row (v27) |
-| ABDC quality_rank | 481/492 (97.8%) | ISSN-first, exact normalised-title fallback where there's no ISSN; never given to an ANU paper dated before the journal's ABDC "Year Inception" (v28) |
-| Scimago quartile (`sjr_quartile`) | 463/492 (94.1%) | |
-| citation percentile (OpenAlex) | 469/492 (95.3%) | tracks DOI coverage — OpenAlex needs a DOI to look a paper up |
-| DOI | 469/492 (95.3%) | all lowercase; every row sharing a DOI carries that DOI record's registered title and year (v27) |
-| author_count | 492/492 (100%) | from the DOI record (OpenAlex) wherever the row has a DOI; on a profile row, the length of an explicit author list that always includes the profile owner (v27). author_count equals the number of names in `authors` on every row |
+| year | 491/491 (100%) | for a row with a DOI, the DOI record's print (issue) year, else its issued year — the convention the pipeline already followed on 96 of 133 split cases, now applied to every DOI row (v27) |
+| ABDC quality_rank | 480/491 (97.8%) | ISSN-first, exact normalised-title fallback where there's no ISSN; never given to an ANU paper dated before the journal's ABDC "Year Inception" (v28) |
+| Scimago quartile (`sjr_quartile`) | 462/491 (94.1%) | |
+| citation percentile (OpenAlex) | 468/491 (95.3%) | tracks DOI coverage — OpenAlex needs a DOI to look a paper up; 2 rows keep the metrics of a removed non-existent DOI whose OpenAlex work has the row's title (v29.3) |
+| DOI | 466/491 (94.9%) | all lowercase; a DOI that neither Crossref nor doi.org knows is removed (v29.3); every row sharing a DOI carries that DOI record's registered title and year (v27) |
+| author_count | 491/491 (100%) | from the DOI record (OpenAlex) wherever the row has a DOI; on a profile row, the length of an explicit author list that always includes the profile owner (v27). author_count equals the number of names in `authors` on every row |
 | distinct journals (`anu_journals.csv` rows) | 140 | |
 | `anu_journals.csv` rows with an ISSN | 134/140 (95.7%) | |
 | `anu_journals.csv` rows with an `impact_factor` (Clarivate JIF) | 118/140 (84.3%) | |
@@ -128,6 +128,53 @@ python -c "import csv; from collections import Counter; print(Counter(r['quality
   row is "published".
 
 The counts are now 481/492 ABDC-ranked (97.8%) and 469 DOIs.
+
+**v29 (6 Oct).** Three display fixes to the `authors` and `link` columns, with no change to the
+numbers (492 rows, 481 ABDC-ranked, 469 DOIs, 4 forthcoming):
+
+- one paper whose OpenAlex record listed a co-author twice now takes Crossref's three-author
+  list;
+- 35 rows that printed an author's name in capitals (mostly OpenAlex's "NEIL L. FARGHER") now
+  print it as the paper's record spells it;
+- two links that were an email-security wrapper or not a web address now point to the DOI.
+
+Sarah Adams' *Third Sector Review* paper (ABDC C) is kept. A shared pipeline change on 6 Oct now
+blanks repository venue names earlier, and the repository-journal repair was widened so the
+journal is still recovered from OpenAlex's own citation.
+
+**v29.2 (6 Oct).** One row is excluded: Greg Shailer's 2022 *Journal of Business Ethics* piece
+"Bringing Excitement to Empirical Business Ethics Research" (ABDC A). Its abstract describes it as
+a selection of commentaries the editors were invited to write for the journal's 40th
+anniversary, so it is an editorial essay, not a research article. It is listed in
+`data/publication_exclusions.csv`. Two titles that inherited typos from Crossref are corrected
+(a missing space, a double hyphen and full stop). Susanna Ho's MISQ 2006 paper now shows the
+published author names ("Kar Yan Tam; Shuk Ying Ho") from Crossref. Two other possible
+non-research items (Marvin Wee, PBFJ 2019; Susanna Ho, CAIS 2019) were checked and kept. CAIS
+labels Ho's paper a "Research Paper". No source that could be read (OpenAlex, Crossref, the
+authors' manuscript) labels Wee's paper an editorial or commentary; Elsevier's own page could not
+be fetched. The counts
+were **491 rows, 480 ABDC-ranked (97.8%), 468 DOIs (95.3%), 4 forthcoming**.
+
+**7 Oct (v29.3).** Two DOIs that do not exist were removed (Marvin Wee, *Company and Securities
+Law Journal* 2021; Sarah Adams, *Third Sector Review* 2020: no Crossref record, 404 at doi.org,
+no real DOI found by title search). JSON files no longer contain NaN (written as null). One
+oa_url had its spaces percent-encoded. Two DOI-less papers held by two ANU researchers each now
+show one title and author list, taken from the journal's own PDF (eJTR) and ProQuest (IJM). The
+APCEA journal name reads "Asia-Pacific". 49 OpenAlex links on DOI rows now point to the DOI. 80
+rows had Unicode hyphens (U+2010) replaced by "-" in titles and author names, so a search for
+"non-financial" or "Xiu-Ye Zhang" finds them. The counts were **491 rows, 480 ABDC-ranked
+(97.8%), 466 DOIs (94.9%), 4 forthcoming**.
+
+**7 Oct (v29.4).** A row with a DOI is now "forthcoming" when its Crossref record shows no issue
+placement (no volume, issue, page or print date) and it is from 2025 on; otherwise it is
+"published". The profile label no longer decides a DOI row. Crossref's article-number is ignored:
+on online-first records it is usually just the DOI suffix. DOI-less rows still need the explicit,
+recent profile label (Sonali Walpola's *Australian Tax Forum* row). 5 online-first rows moved
+from published to forthcoming (Scarlett Luo, *Abacus*; Kathy Wang and Isabel Wang, *JBE*; Xiu-Ye
+Zhang, *IJA* and *EFM*), joining Eunice Khoo (*JAAF*) and Xin (Kelly) Liu and Kun Li
+(*Management Science*). The site, `load.py` and `app.py` treat "forthcoming" like "published":
+it is displayed, not filtered or left out of counts. The counts are now **491 rows, 480
+ABDC-ranked (97.8%), 466 DOIs (94.9%), 9 forthcoming**.
 
 Titles on DOI rows follow the DOI's registered title (v27). Two refinements were made on
 5 Oct (v27.1):
@@ -204,7 +251,8 @@ excluded.
   Wang (ORCID 0000-0002-2170-2293, ANU Lecturer). The seed OpenAlex
   author id belonged to a namesake at the University of Washington. She
   goes from 3 rows to 8, all with DOIs.
-- **Accepted limitation: 23 rows have no DOI**, all from profile pages.
+- **Accepted limitation: 25 rows have no DOI**: 23 from profile pages, plus
+  2 ORCID/OpenAlex rows whose DOI was found not to exist (v29.3).
   Each was searched on Crossref. 3 passed the strict check (same title,
   journal, year ±1, owner among the authors) on 5 Oct (v27); 9 more were
   verified by hand (author, journal and paper) and attached in v28. The
@@ -285,7 +333,8 @@ work) → 532 (22 Sep, merged with a parallel fresh pipeline run that added
 see docs/DECISIONS.md) → 522 (24 Sep, the 10 Liu rows excluded by rule) →
 523 (24 Sep, the 1 recoverable lost row restored) → 508 (28 Sep, v25 — +1 Chao Gao, −1 Panel, −14 non-journal items, −1
 duplicate merged by a verified DOI) → 505 (28 Sep, v26 — −3
-duplicate profile copies of published rows) → **492 (5 Oct, v27, current —
+duplicate profile copies of published rows) → 492 (5 Oct, v27 —
 +7 recovered (Kathy Wang ×6, Lily Chen ×1), −13 profile copies, −2 book
 reviews, −3 conference papers, −1 same-DOI duplicate, −1 profile copy
-merged with Kathy Wang's DOI row)**.
+merged with Kathy Wang's DOI row) → **491 (6 Oct, v29.2, current — −1
+invited editors' commentary essay, Greg Shailer, *Journal of Business Ethics* 2022)**.

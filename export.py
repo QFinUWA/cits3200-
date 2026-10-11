@@ -8,11 +8,13 @@ visible and reversible rather than baked into each source.
 import csv
 import difflib
 import json
+import math
 import re
 import unicodedata
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pandas as pd
 
@@ -881,7 +883,17 @@ def _is_anu_off_field_journal(x, anu_names):
 # that on a non-ANU row for each one.
 
 
-def _anu_author_fallback(x, anu_names):
+ANU_AUTHOR_FALLBACK_LOG = []
+
+
+def _full_name(name):
+    """A given name that is a word, not initials: 'Kar Yan Tam', not 'K Tam'."""
+    words = name.split()
+    return len(words) >= 2 and any(len(w.strip(".")) >= 2 and not w.isupper()
+                                   for w in words[:-1])
+
+
+def _anu_author_fallback(x, anu_names, crossref_fetch=None):
     """base_scrapers/anu.py leaves n_authors/authors blank on an ANU profile
     row that has a DOI, so OpenAlex enrichment fills them from the DOI
     record. Only if enrichment found nothing is the profile's own count used
@@ -894,12 +906,25 @@ def _anu_author_fallback(x, anu_names):
     if x.get("n_authors"):
         # v28: a DOI record that names its authors by surname only ("Tam;
         # Ho", the JSTOR record of Susanna Ho's MISQ 2006 paper) yields to
-        # the profile's readable list of the same people, same count.
+        # a readable list of the same people, same count.
         names = [n.strip() for n in (x.get("authors") or "").split(";") if n.strip()]
         if not (names and all(len(n.split()) == 1 for n in names)
                 and len(names) == x["_anu_profile_n_authors"] == x["n_authors"]):
             return False
-        x["authors"] = x.get("_anu_profile_authors")
+        # v29.2: Crossref's list for the same DOI first, when every name on
+        # it is a full name and the count agrees; else the profile's list.
+        crossref = []
+        if x.get("doi"):
+            crossref = _crossref_author_names(
+                _anu_crossref_message(x["doi"].strip().lower(), crossref_fetch))
+        if len(crossref) == len(names) and all(_full_name(n) for n in crossref):
+            x["authors"] = "; ".join(crossref)
+            ANU_AUTHOR_FALLBACK_LOG.append(("surname-only list -> Crossref", x["name"],
+                                            x.get("doi"), x["authors"]))
+        else:
+            x["authors"] = x.get("_anu_profile_authors")
+            ANU_AUTHOR_FALLBACK_LOG.append(("surname-only list -> profile", x["name"],
+                                            x.get("doi"), x["authors"]))
         return True
     x["n_authors"] = x["_anu_profile_n_authors"]
     if not x.get("authors"):
@@ -931,9 +956,13 @@ def _anu_repository_journal_repair(x, anu_names, fetch=None):
     paper. The ABDC rating and ISSNs follow from that exact title, the same
     way enrichment/abdc.py's title fallback sets them. Returns the journal
     applied, or None."""
-    if x.get("name") not in anu_names:
+    if x.get("name") not in anu_names or not x.get("doi"):
         return None
-    if not _repository_like_journal(x.get("journal")) or not x.get("doi"):
+    # v29: since core/schema.clean_journal (6 Oct) blanks repository names at
+    # retrieval, a blank journal qualifies too, but only when OpenAlex's
+    # primary location for the DOI is itself a repository (checked below).
+    blank = not (x.get("journal") or "").strip()
+    if not blank and not _repository_like_journal(x.get("journal")):
         return None
     from enrichment.abdc import normalise_title, title_issns, title_rating
 
@@ -950,6 +979,10 @@ def _anu_repository_journal_repair(x, anu_names, fetch=None):
         print(f"    ANU repository-journal repair: OpenAlex lookup failed for "
               f"{x['doi']}: {type(e).__name__} {e}")
         return None
+    if blank:
+        primary = (((work or {}).get("primary_location") or {}).get("source") or {})
+        if not _repository_like_journal(primary.get("display_name")):
+            return None
     citations = {loc.get("raw_source_name") for loc in
                  [(work or {}).get("primary_location") or {}] + ((work or {}).get("locations") or [])}
     found = {_anu_citation_journal(c, x.get("title")) for c in citations if c}
@@ -1575,20 +1608,12 @@ def _anu_drop_profile_copies(rows, anu_names, records):
 #
 # Client's 19 Aug rule: a paper is forthcoming only when it is explicitly
 # labelled so, never inferred (on 2 Sep the client called "no volume yet" on
-# its own too broad). An ANU row is "forthcoming" when the researcher's own
-# profile entry for it says "forthcoming" or "in press" AND it is not yet in
-# an issue: it has no DOI, or its DOI record has neither a volume nor a print
-# date. A labelled entry that has since reached an issue is "published";
-# profile pages are often not updated.
+# its own too broad). A DOI-less ANU row is "forthcoming" when the
+# researcher's own profile entry for it says "forthcoming" or "in press".
+# Since v29.4 a DOI row is decided by its Crossref record instead (see
+# _anu_doi_status below): label-based status left 3 online-first DOI rows
+# forthcoming and 5 in the identical Crossref state published.
 ANU_STATUS_LOG = []
-
-
-def _in_an_issue(record):
-    """True when a Crossref record shows the paper in an issue; None when
-    there is no record to tell."""
-    if not record:
-        return None
-    return bool(record.get("volume") or _record_years(record)["published-print"])
 
 
 def _labelled_profile_entry_for(row, labelled):
@@ -1623,42 +1648,449 @@ def _anu_publication_status(rows, pubs, anu_names, records, this_year=None):
     for p in pubs:
         if p.get("name") in anu_names and p.get("_anu_forthcoming_label"):
             labelled.setdefault(p["name"], []).append(p)
-    entries = {id(row): _labelled_profile_entry_for(row, labelled)
-               for row in rows if row.get("name") in anu_names}
-    # Status belongs to the paper: an ANU co-author's label covers every ANU
-    # row of the same DOI (Kun Li's copy of Xin (Kelly) Liu's paper).
-    labelled_dois = {(row.get("doi") or "").lower() for row in rows
-                     if entries.get(id(row)) and row.get("doi")}
     for row in rows:
         if row.get("name") not in anu_names:
             continue
         doi = (row.get("doi") or "").lower()
-        issue = _in_an_issue(records.get(doi)) if doi else False
-        entry = entries.get(id(row)) or (doi in labelled_dois or None)
-        recent = True
-        if entry and not doi:
-            try:
-                recent = int(str(row.get("year"))[:4]) >= this_year - ANU_FORTHCOMING_MAX_AGE_YEARS
-            except (TypeError, ValueError):
-                recent = False
-        if entry and recent and (not doi or issue is False):
+        if doi:
+            _anu_doi_status(row, doi, records.get(doi))
+            continue
+        entry = _labelled_profile_entry_for(row, labelled)
+        try:
+            recent = int(str(row.get("year"))[:4]) >= this_year - ANU_FORTHCOMING_MAX_AGE_YEARS
+        except (TypeError, ValueError):
+            recent = False
+        if entry and recent:
             row["publication_status"] = "forthcoming"
             ANU_STATUS_LOG.append(("forthcoming", row["name"], doi, row.get("title")))
         else:
             row["publication_status"] = "published"
             if entry:
-                why = ("no DOI and the label is not recent" if not recent else
-                       "no DOI record to check" if issue is None else "now in an issue")
-                ANU_STATUS_LOG.append((f"labelled, kept published: {why}", row["name"], doi,
-                                       row.get("title")))
-            elif doi and issue is False:
-                ANU_STATUS_LOG.append(("online-first, not labelled: published", row["name"], doi,
-                                       row.get("title")))
+                ANU_STATUS_LOG.append(("labelled, kept published: no DOI and the label is not "
+                                       "recent", row["name"], doi, row.get("title")))
+
+
+# v29.4: a DOI row's status comes from its Crossref record alone. It is
+# forthcoming when the record shows no issue placement (no volume, issue,
+# page or print date) and the paper is from 2025 on; otherwise published.
+# Crossref's article-number is ignored: on online-first records it is
+# usually the DOI suffix (abac.70030, mnsc.2024.08157), not an issue place.
+# A DOI with no record to check stays published.
+ANU_FORTHCOMING_FROM_YEAR = 2025
+
+
+def _not_yet_in_an_issue(record):
+    return not (record.get("volume") or record.get("issue") or record.get("page")
+                or _record_years(record)["published-print"])
+
+
+def _anu_doi_status(row, doi, record):
+    try:
+        recent = int(str(row.get("year"))[:4]) >= ANU_FORTHCOMING_FROM_YEAR
+    except (TypeError, ValueError):
+        recent = False
+    if record and recent and _not_yet_in_an_issue(record):
+        row["publication_status"] = "forthcoming"
+        ANU_STATUS_LOG.append(("forthcoming: DOI record not yet in an issue", row["name"], doi,
+                               row.get("title")))
+        return
+    row["publication_status"] = "published"
+    if not record:
+        ANU_STATUS_LOG.append(("published: no DOI record to check", row["name"], doi,
+                               row.get("title")))
+
+
+# --- v29: DOI author lists, all-caps author names, junk links ---------------
+#
+# Three output defects found in the 6 Oct 2026 audit (docs/DECISIONS.md, v29).
+# Each function returns immediately for a row whose `name` is not in
+# `anu_names`, like every other ANU rule above.
+
+ANU_V29_LOG = []
+
+
+def _anu_openalex_work(doi, fetch=None):
+    """OpenAlex's record for `doi` ({} when there is none)."""
+    if fetch is None:
+        from core.config import OA_HEADERS, OPENALEX_BASE
+        from core.http import cached_get
+
+        def fetch(d):
+            return cached_get(f"{OPENALEX_BASE}/doi:{d}", headers=OA_HEADERS,
+                              sleep=0.5, allow_404=True)
+    try:
+        return fetch(doi) or {}
+    except Exception as e:
+        print(f"    ANU author check: OpenAlex lookup failed for {doi}: "
+              f"{type(e).__name__} {e}")
+        return {}
+
+
+def _crossref_author_names(msg):
+    """"Given Family" for each author of a Crossref record; [] when any
+    author has no name at all (a partial list is not used)."""
+    out = []
+    for a in msg.get("author") or []:
+        name = " ".join(p for p in (a.get("given"), a.get("family")) if p) or a.get("name")
+        name = " ".join((name or "").split())
+        if not name:
+            return []
+        out.append(name)
+    return out
+
+
+def _anu_doi_author_lists(rows, anu_names, records, fetch=None):
+    """Task A. An OpenAlex record that repeats an author id, or has more
+    authorships than Crossref has authors for the same DOI, has merged or
+    doubled someone (10.1016/j.jbankfin.2025.107621 lists "Y C Zhang" twice,
+    once for Tianyao Zhang). The row then takes Crossref's list and count.
+    Returns {doi: OpenAlex work} for the casing rule."""
+    works = {}
+    for row in rows:
+        if row.get("name") not in anu_names or not row.get("doi"):
+            continue
+        doi = row["doi"]
+        if doi not in works:
+            works[doi] = _anu_openalex_work(doi, fetch)
+        ships = works[doi].get("authorships") or []
+        ids = [(a.get("author") or {}).get("id") for a in ships]
+        ids = [i for i in ids if i]
+        crossref = _crossref_author_names(records.get(doi) or {})
+        if not crossref or not (len(ids) != len(set(ids)) or len(ships) > len(crossref)):
+            continue
+        authors = "; ".join(crossref)
+        if authors != row.get("authors") or str(len(crossref)) != str(row.get("author_count")):
+            ANU_V29_LOG.append(("authors from Crossref", row["name"], doi,
+                                f"{row.get('authors')!r} ({row.get('author_count')}) -> "
+                                f"{authors!r} ({len(crossref)})"))
+            row["authors"] = authors
+            row["author_count"] = len(crossref)
+    return works
+
+
+def _all_caps_name(name):
+    letters = [c for c in name if c.isalpha()]
+    return len(letters) >= 2 and all(c.isupper() for c in letters)
+
+
+# Lower case only between a given name and a surname ("Warrick van Zyl").
+_NAME_PARTICLES = {"van", "von", "de", "der", "den", "ter"}
+
+
+def _title_case_name(name):
+    """'CHYIWOAN TAN' -> 'Chyiwoan Tan', 'NEIL L. FARGHER' -> 'Neil L. Fargher'.
+    None for a Mc/Mac surname, whose inner capital cannot be known."""
+    words = name.split()
+    out = []
+    for i, w in enumerate(words):
+        if re.match(r"^MA?C[A-Z]", w):
+            return None
+        if 0 < i < len(words) - 1 and w.lower() in _NAME_PARTICLES:
+            out.append(w.lower())
+        elif re.fullmatch(r"[A-Z]\.?", w):
+            out.append(w)
+        else:
+            out.append(re.sub(r"[^\W\d_]+", lambda m: m.group(0)[0] + m.group(0)[1:].lower(), w))
+    return " ".join(out)
+
+
+def _surname_key(name):
+    from base_scrapers.anu import _fold_name_keep_spaces
+    words = re.sub(r"[^\w\s]", " ", _fold_name_keep_spaces(name)).split()
+    return words[-1] if words else ""
+
+
+def _anu_uncap_author_names(rows, anu_names, works):
+    """Task B. An all-caps author name ('NEIL L. FARGHER', OpenAlex's display
+    name for him) takes that author's mixed-case raw_author_name from the
+    same OpenAlex record, else the same name in title case. Authors column
+    only: titles keep their registered casing."""
+    from base_scrapers.anu import _fold_name
+    for row in rows:
+        if row.get("name") not in anu_names or not row.get("authors"):
+            continue
+        ships = (works.get(row.get("doi")) or {}).get("authorships") or [] if row.get("doi") else []
+        names = [n.strip() for n in row["authors"].split(";") if n.strip()]
+        fixed = []
+        for name in names:
+            if not _all_caps_name(name):
+                fixed.append(name)
+                continue
+            new = None
+            for a in ships:
+                shown = (a.get("author") or {}).get("display_name") or ""
+                raw = a.get("raw_author_name") or ""
+                if _fold_name(name) not in (_fold_name(shown), _fold_name(raw)):
+                    continue
+                # The raw name must be the same person's: OpenAlex has paired
+                # one author's id with a co-author's raw name (task A).
+                if raw and not _single_case(raw) and _surname_key(raw) == _surname_key(name):
+                    new = " ".join(raw.split())
+                break
+            new = new or _title_case_name(name)
+            if new is None:
+                ANU_V29_LOG.append(("refused: all-caps name not recased", row["name"],
+                                    row.get("doi"), name))
+                new = name
+            fixed.append(new)
+        authors = "; ".join(fixed)
+        if authors != "; ".join(names):
+            ANU_V29_LOG.append(("all-caps author name recased", row["name"], row.get("doi"),
+                                f"{row['authors']!r} -> {authors!r}"))
+            row["authors"] = authors
+
+
+# Email-security link rewriters: a link copied out of an email.
+_EMAIL_WRAPPER_RE = re.compile(
+    r"safelinks\.protection\.outlook\.com|linkprotect\.cudasvc\.com|urldefense", re.I)
+_HOST_RE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}", re.I)
+
+
+def _is_usable_link(link):
+    """An absolute http(s) URL with a real host, not an email wrapper."""
+    if _EMAIL_WRAPPER_RE.search(link):
+        return False
+    try:
+        parts = urlsplit(link)
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and bool(_HOST_RE.fullmatch(parts.hostname or ""))
+
+
+def _anu_repair_links(rows, anu_names):
+    """Task C. A link that is an email wrapper or not a URL
+    ('https://doi:%2010.2308/JIAR-2021-054') becomes the DOI link, or is
+    blanked when the row has no DOI."""
+    for row in rows:
+        if row.get("name") not in anu_names or not row.get("link"):
+            continue
+        if _is_usable_link(row["link"]):
+            continue
+        new = row.get("article_url") if row.get("doi") else None
+        ANU_V29_LOG.append(("link replaced", row["name"], row.get("doi"),
+                            f"{row['link'][:80]!r} -> {new!r}"))
+        row["link"] = new
+
+
+# v29.2: typos in a DOI's registered title, corrected for every ANU row of
+# that DOI. Explicit and DOI-keyed, not a rule. Applied after
+# _anu_align_doi_records, which would otherwise put Crossref's typo back (a
+# data/overrides.csv entry is applied before it and is undone).
+ANU_TITLE_CORRECTIONS = {
+    # Crossref: "...Equity-ImpliedProbabilities..." (space missing)
+    "10.3905/jfi.2011.20.3.071":
+        "A Simple Empirical Model of Equity-Implied Probabilities of Default",
+    # Crossref: "...Service--Evidence ... Book-to-Bill Ratio." (double hyphen, full stop)
+    "10.2308/ajpt-15117432":
+        "Timely Industry Information as an Assurance Service—Evidence on the "
+        "Information Content of the Book-to-Bill Ratio",
+}
+
+
+def _anu_correct_titles(rows, anu_names):
+    for row in rows:
+        if row.get("name") not in anu_names:
+            continue
+        title = ANU_TITLE_CORRECTIONS.get((row.get("doi") or "").lower())
+        if title and title != row.get("title"):
+            ANU_V29_LOG.append(("title corrected (ANU_TITLE_CORRECTIONS)", row["name"],
+                                row["doi"], f"{row.get('title')!r} -> {title!r}"))
+            row["title"] = title
+
+
+# --- v29.3: dead DOIs, URL spaces, one rendering per paper, journal casing,
+# DOI links, Unicode hyphens ------------------------------------------------
+#
+# Found in the 7 Oct 2026 audit (docs/DECISIONS.md, v29.3). ANU rows only.
+
+ANU_V293_LOG = []
+# Journal names changed by _anu_capitalise_hyphenated_journals, {old: new},
+# so export() can rename the same journal in the journals table.
+ANU_JOURNAL_RENAMES = {}
+
+_CITATION_METRICS = ("cited_by_count", "fwci", "citation_percentile")
+
+
+def _doi_handle(doi, fetch=None):
+    """doi.org's handle record for `doi`: None when doi.org returns 404 (the
+    DOI does not exist). Raises when the lookup fails."""
+    if fetch is None:
+        from core.http import cached_get
+
+        def fetch(d):
+            return cached_get(f"https://doi.org/api/handles/{d}", sleep=0.5, allow_404=True)
+    return fetch(doi)
+
+
+def _anu_drop_dead_dois(rows, anu_names, records, works, handle_fetch=None):
+    """Task 1. A DOI with no Crossref record AND a 404 from the doi.org handle
+    API does not exist, so its link is dead: the DOI is removed, with
+    article_url and link where they are that DOI's doi.org link. Runs after
+    OpenAlex enrichment, so the enrichment batches are unchanged. The
+    citation metrics stay only when the DOI's OpenAlex work has the row's
+    title. A failed lookup removes nothing."""
+    for row in rows:
+        if row.get("name") not in anu_names or not row.get("doi"):
+            continue
+        doi = row["doi"]
+        if records.get(doi):
+            continue
+        try:
+            if _doi_handle(doi, handle_fetch) is not None:
+                continue
+        except Exception as e:
+            ANU_V293_LOG.append(("refused: doi.org lookup failed", row["name"], doi,
+                                 f"{type(e).__name__} {e}"))
+            continue
+        doi_link = f"https://doi.org/{doi}".lower()
+        for col in ("article_url", "link"):
+            if (row.get(col) or "").lower() == doi_link:
+                row[col] = None
+        row["doi"] = None
+        work_title = (works.get(doi) or {}).get("title")
+        same = bool(work_title) and _normalise_title(work_title) == _normalise_title(row.get("title"))
+        if not same:
+            for col in _CITATION_METRICS:
+                row[col] = None
+        ANU_V293_LOG.append(("dead DOI removed", row["name"], doi,
+                             f"no Crossref record, doi.org 404; metrics "
+                             f"{'kept (OpenAlex title matches)' if same else 'blanked'}"))
+
+
+_URL_COLUMNS = ("link", "oa_url", "article_url")
+
+
+def _anu_encode_url_spaces(rows, anu_names):
+    """Task 3. A space in a URL column is percent-encoded; a value that is
+    still not an http(s) URL with a real host is blanked."""
+    for row in rows:
+        if row.get("name") not in anu_names:
+            continue
+        for col in _URL_COLUMNS:
+            value = row.get(col)
+            if not value or " " not in value:
+                continue
+            new = value.strip().replace(" ", "%20")
+            if not _is_usable_link(new):
+                new = None
+            ANU_V293_LOG.append(("URL space encoded" if new else "URL blanked", row["name"],
+                                 row.get("doi"), f"{col}: {value!r} -> {new!r}"))
+            row[col] = new
+
+
+ANU_PAPER_RECORDS = Path(__file__).resolve().parent / "data" / "anu_paper_records.csv"
+
+
+def _paper_key(journal, year, title):
+    """Task 5 key: journal, year, and the title without case, punctuation or
+    a leading "The"."""
+    t = " ".join(re.sub(r"[^\w\s]", " ", (title or "").lower()).split())
+    return (_loose_journal_key(journal), str(year or ""), re.sub(r"^the ", "", t))
+
+
+def anu_paper_records(path=None):
+    """{paper key: cited record} from data/anu_paper_records.csv."""
+    path = Path(path or ANU_PAPER_RECORDS)
+    if not path.exists():
+        return {}
+    with path.open(encoding="utf-8") as f:
+        return {_paper_key(r["journal_name"], r["year"], r["title"]): r
+                for r in csv.DictReader(f)}
+
+
+def _anu_one_rendering_per_paper(rows, anu_names, cited=None):
+    """Task 5. DOI-less rows of different ANU researchers with the same
+    journal, year and title (ignoring a leading "The", case and punctuation)
+    are one paper. Every such row takes the title and authors of the cited
+    external record in data/anu_paper_records.csv; without one the rows are
+    left as they are and the refusal is logged."""
+    cited = anu_paper_records() if cited is None else cited
+    groups = {}
+    for row in rows:
+        if row.get("name") in anu_names and not row.get("doi"):
+            key = _paper_key(row.get("journal_name"), row.get("year"), row.get("title"))
+            groups.setdefault(key, []).append(row)
+    for key, group in groups.items():
+        if len({r["name"] for r in group}) < 2:
+            continue
+        record = cited.get(key)
+        names = ", ".join(sorted({r["name"] for r in group}))
+        if not record:
+            ANU_V293_LOG.append(("refused: same paper, no cited record", names, None,
+                                 group[0].get("title")))
+            continue
+        authors = "; ".join(a.strip() for a in record["authors"].split(";") if a.strip())
+        count = len(authors.split("; "))
+        for row in group:
+            if (row.get("title"), row.get("authors"), str(row.get("author_count"))) \
+                    == (record["title"], authors, str(count)):
+                continue
+            ANU_V293_LOG.append(("one rendering per paper", row["name"], None,
+                                 f"{row.get('title')!r} / {row.get('authors')!r} -> "
+                                 f"{record['title']!r} / {authors!r} ({record['evidence_url']})"))
+            row["title"] = record["title"]
+            row["authors"] = authors
+            row["author_count"] = count
+
+
+_LOWER_AFTER_HYPHEN_RE = re.compile(r"\b([A-Z][a-z]*)-([a-z])")
+
+
+def _anu_capitalise_hyphenated_journals(rows, anu_names):
+    """Task 6. In a journal name parsed from an ANU profile, a hyphenated
+    word whose first part is capitalised gets its second part capitalised
+    too ("Asia-pacific" -> "Asia-Pacific")."""
+    for row in rows:
+        if row.get("name") not in anu_names or row.get("source") != "ANU staff profile":
+            continue
+        old = row.get("journal_name") or ""
+        new = _LOWER_AFTER_HYPHEN_RE.sub(lambda m: f"{m.group(1)}-{m.group(2).upper()}", old)
+        if new != old:
+            ANU_JOURNAL_RENAMES[old] = new
+            ANU_V293_LOG.append(("journal name capitalised", row["name"], row.get("doi"),
+                                 f"{old!r} -> {new!r}"))
+            row["journal_name"] = new
+
+
+def _anu_doi_links(rows, anu_names):
+    """Task 7. A row with a DOI whose link is an OpenAlex page links to the
+    DOI instead. Publisher, SSRN and other links are left alone."""
+    for row in rows:
+        if row.get("name") not in anu_names or not row.get("doi"):
+            continue
+        link = row.get("link") or ""
+        if (urlsplit(link).hostname or "").lower().endswith("openalex.org"):
+            new = f"https://doi.org/{row['doi']}"
+            ANU_V293_LOG.append(("OpenAlex link -> DOI link", row["name"], row["doi"],
+                                 f"{link!r} -> {new!r}"))
+            row["link"] = new
+
+
+# U+2010 HYPHEN and U+2011 NON-BREAKING HYPHEN. En and em dashes are kept.
+_UNICODE_HYPHENS = str.maketrans({"‐": "-", "‑": "-"})
+
+
+def _anu_plain_hyphens(rows, anu_names):
+    """Task 8. Unicode hyphens in title, authors and journal_name become "-",
+    so a search for "non-financial" finds them. Runs last."""
+    for row in rows:
+        if row.get("name") not in anu_names:
+            continue
+        changed = []
+        for col in ("title", "authors", "journal_name"):
+            value = row.get(col)
+            if value and value.translate(_UNICODE_HYPHENS) != value:
+                row[col] = value.translate(_UNICODE_HYPHENS)
+                changed.append(col)
+        if changed:
+            ANU_V293_LOG.append(("Unicode hyphen replaced", row["name"], row.get("doi"),
+                                 ", ".join(changed)))
 
 
 def _anu_final_rules(rows, pubs, anu_names, crossref_fetch=None):
     """The v27 ANU rules, in order. Non-ANU rows pass through untouched."""
     records = _anu_align_doi_records(rows, pubs, anu_names, crossref_fetch)
+    _anu_correct_titles(rows, anu_names)
     _anu_strip_footnote_marker(rows, anu_names)
     _anu_one_title_per_doi(rows, anu_names)
     rows = _anu_one_row_per_doi(rows, anu_names)
@@ -1670,6 +2102,21 @@ def _anu_final_rules(rows, pubs, anu_names, crossref_fetch=None):
     rows = _anu_drop_profile_copies(rows, anu_names, records)
     ANU_STATUS_LOG.clear()
     _anu_publication_status(rows, pubs, anu_names, records)
+    # v29. Offline like the proceedings check above when a test supplies
+    # its own Crossref lookup.
+    works = _anu_doi_author_lists(rows, anu_names, records,
+                                  (lambda d: {}) if crossref_fetch else None)
+    _anu_uncap_author_names(rows, anu_names, works)
+    _anu_repair_links(rows, anu_names)
+    # v29.3. A test's own Crossref lookup means no doi.org lookup either:
+    # every handle is then treated as existing.
+    _anu_drop_dead_dois(rows, anu_names, records, works,
+                        (lambda d: {}) if crossref_fetch else None)
+    _anu_encode_url_spaces(rows, anu_names)
+    _anu_one_rendering_per_paper(rows, anu_names)
+    _anu_capitalise_hyphenated_journals(rows, anu_names)
+    _anu_doi_links(rows, anu_names)
+    _anu_plain_hyphens(rows, anu_names)
     return rows
 
 
@@ -1809,6 +2256,7 @@ def build_publications(pubs, records=None, keep_type="Journal Article",
     SKIPPED_PREFIX_DUPS.clear()
     ANU_INCEPTION_LOG.clear()
     TYPE_REVIEW_LOG.clear()
+    ANU_AUTHOR_FALLBACK_LOG.clear()
     orcid_by_name = {r["name_clean"]: r.get("orcid") for r in (records or [])}
     anu_names = _anu_staff_names(records)
     out = []
@@ -1888,7 +2336,7 @@ def build_publications(pubs, records=None, keep_type="Journal Article",
             if not doi or doi in kept_dois_by_key[k]:
                 continue
             kept_dois_by_key[k].add(doi)
-        if _anu_author_fallback(x, anu_names):
+        if _anu_author_fallback(x, anu_names, crossref_fetch):
             anu_author_fallbacks += 1
         if flag:
             _log_non_article(x, "review", flag[1])
@@ -1921,6 +2369,9 @@ def build_publications(pubs, records=None, keep_type="Journal Article",
     out = _harmonise_doi_metadata(out)
     anu_text_changes = _anu_repair_title_text(out, pubs, anu_names)
     ANU_V27_LOG.clear()
+    ANU_V29_LOG.clear()
+    ANU_V293_LOG.clear()
+    ANU_JOURNAL_RENAMES.clear()
     if anu_names:
         out = _anu_final_rules(out, pubs, anu_names, crossref_fetch)
 
@@ -1955,6 +2406,8 @@ def build_publications(pubs, records=None, keep_type="Journal Article",
         if anu_author_fallbacks:
             print(f"  {anu_author_fallbacks} ANU profile row(s) kept the profile's own "
                   f"author count (DOI enrichment returned no authors)")
+        for entry in ANU_AUTHOR_FALLBACK_LOG:
+            print("  ANU author fallback: " + " | ".join(str(v) for v in entry))
         for name, field, before, after in anu_text_changes:
             print(f"  ANU {field} text repair: {name}: {before[:60]!r} -> {after[:60]!r}")
         for status, name, doi, title in ANU_STATUS_LOG:
@@ -1969,6 +2422,18 @@ def build_publications(pubs, records=None, keep_type="Journal Article",
             for entry in ANU_V27_LOG:
                 if not entry[0].startswith(("title from", "year from")):
                     print("    " + " | ".join(str(v)[:110] for v in entry))
+        if ANU_V29_LOG:
+            print(f"  ANU author/link rules (v29): "
+                  + ", ".join(f"{k} {n}" for k, n in
+                              Counter(e[0] for e in ANU_V29_LOG).most_common()))
+            for entry in ANU_V29_LOG:
+                print("    " + " | ".join(str(v)[:160] for v in entry))
+        if ANU_V293_LOG:
+            print(f"  ANU rules (v29.3): "
+                  + ", ".join(f"{k} {n}" for k, n in
+                              Counter(e[0] for e in ANU_V293_LOG).most_common()))
+            for entry in ANU_V293_LOG:
+                print("    " + " | ".join(str(v)[:200] for v in entry))
         if anu_title_repairs:
             print(f"  repaired {anu_title_repairs} ANU title(s) at export "
                   f"time (FIX I, applied here for a row from a non-page source)")
@@ -2027,6 +2492,19 @@ def _whole_numbers(df):
     return df
 
 
+def _json_safe(value):
+    """NaN and infinity become None (null): they are not valid JSON, and
+    JavaScript's JSON.parse rejects a file containing them. Nothing else
+    changes."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
 def write(tables, out_dir=None, verbose=True):
     """Write the four tables into `final output/<uni>/`, named `<uni>_<table>`.
 
@@ -2044,7 +2522,7 @@ def write(tables, out_dir=None, verbose=True):
     for name, data in tables.items():
         stem = f"{prefix}{name}"
         with open(out_dir / f"{stem}.json", "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+            json.dump(_json_safe(data), f, indent=2, ensure_ascii=False, allow_nan=False)
         _whole_numbers(pd.DataFrame(data)).to_csv(out_dir / f"{stem}.csv", index=False)
         if verbose:
             print(f"  {name:14} {len(data):5}  ->  {out_dir / (stem + '.csv')}")
@@ -2166,11 +2644,17 @@ def export(records, pubs, out_dir=None, drop_staff_without_pubs=False,
         if verbose and before != len(staff):
             print(f"  dropped {before - len(staff)} staff with no publications")
 
+    # A journal renamed by an ANU rule after the rows were built
+    # (ANU_JOURNAL_RENAMES) is still keyed under its old name in `pubs`.
+    used = {p["journal_name"] for p in publications}
+    renamed = {old: new for old, new in ANU_JOURNAL_RENAMES.items() if new in used}
+    journals = build_journals(pubs, used_names=used | set(renamed))
+    for j in journals:
+        if j["journal_name"] in renamed:
+            j["journal_name"] = renamed[j["journal_name"]]
     tables = {
         "staff": staff,
-        "journals": build_journals(
-            pubs, used_names={p["journal_name"] for p in publications}
-        ),
+        "journals": journals,
         "publications": publications,
         "harvest": build_harvest(records, pubs, publications),
     }

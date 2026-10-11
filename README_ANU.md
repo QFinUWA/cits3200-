@@ -35,13 +35,17 @@ This is the current, authoritative source for ANU's slice of the data —
 and `anu_harvest.csv` (each with a matching `.json`), produced by
 `export.py` from the raw scrape plus ORCID/Crossref/OpenAlex retrieval and
 ABDC/Scimago/Clarivate enrichment. Actual current column headers, read
-directly from the files (updated 22 Sep 2026 — verify again after any
+directly from the files (updated 6 Oct 2026 — verify again after any
 future pipeline change rather than trusting this table blind):
 
 | File | Columns |
 |---|---|
-| `anu_staff.csv` | `name, job_title, academic_level, university, field_of_research, source_id, orcid, profile_url` |
+| `anu_staff.csv` | `name, job_title, academic_level, academic_title, admin_title, university, field_of_research, source_id, orcid, profile_url` |
 | `anu_publications.csv` | `name, orcid, source_id, journal_name, title, year, author_count, authors, doi, article_url, link, quality_rank, sjr_quartile, citation_percentile, cited_by_count, fwci, oa_status, oa_url, publication_status, source` |
+
+The repo-root `anu_publications.csv` / `anu_staff.csv` / `anu_journals.csv` are a
+1 Sep 2026 legacy snapshot (296 publications) kept for old scripts and are not the
+current data; the current data is `final output/anu/`.
 
 `quality_rank`/`sjr_quartile` are the authoritative ABDC/Scimago join,
 computed once in the shared pipeline — not the self-reported hint the
@@ -159,13 +163,13 @@ titles are frequently hyperlinked with no visible URL shown at all.
   dropped, conference papers that OpenAlex files under a journal
   dropped, and DOI-less profile copies of published rows dropped.
 
-## Data status (5 Oct 2026)
+## Data status (7 Oct 2026)
 
-`final output/anu/` holds 492 journal articles for 40 researchers
-(481 ABDC-ranked, 97.8%; 469 with a DOI; 4 forthcoming). ANU's cleaning is complete
+`final output/anu/` holds 491 journal articles for 40 researchers
+(480 ABDC-ranked, 97.8%; 466 with a DOI; 9 forthcoming). ANU's cleaning is complete
 within the agreed sources: every known defect is fixed in the pipeline
 and locked by `tests/test_anu_final_data.py`, or listed as an accepted
-limitation in docs/ANU_DATA_SUMMARY.md (23 rows with no attachable DOI, 11
+limitation in docs/ANU_DATA_SUMMARY.md (25 rows with no attachable DOI, 11
 unranked journals, the Pure portal out of scope). Five scope questions
 await the client.
 
