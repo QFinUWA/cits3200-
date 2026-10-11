@@ -912,7 +912,7 @@
     "scimago_year": null
   },
   {
-    "journal_name": "Journal of the Asia-pacific Centre for Environmental Accountability",
+    "journal_name": "Journal of the Asia-Pacific Centre for Environmental Accountability",
     "journal_raw": "Journal of the Asia-pacific Centre for Environmental Accountability",
     "publisher": null,
     "issn": null,
@@ -1065,7 +1065,7 @@
     "impact_factor": null,
     "impact_factor_5yr": null,
     "jcr_year": null,
-    "sjr": NaN,
+    "sjr": null,
     "sjr_quartile": null,
     "h_index": 20,
     "cites_per_doc_2y": 1.22,
@@ -1097,7 +1097,7 @@
     "impact_factor": null,
     "impact_factor_5yr": null,
     "jcr_year": null,
-    "sjr": NaN,
+    "sjr": null,
     "sjr_quartile": null,
     "h_index": 15,
     "cites_per_doc_2y": 0.44,
@@ -1193,7 +1193,7 @@
     "impact_factor": null,
     "impact_factor_5yr": null,
     "jcr_year": null,
-    "sjr": NaN,
+    "sjr": null,
     "sjr_quartile": null,
     "h_index": 2,
     "cites_per_doc_2y": 0.0,
@@ -2078,6 +2078,22 @@
     "h_index": 75,
     "cites_per_doc_2y": 3.31,
     "scimago_year": "2025"
+  },
+  {
+    "journal_name": "Third Sector Review",
+    "journal_raw": "Third Sector Review",
+    "publisher": "The University of Western Australia",
+    "issn": "1323-9163; 1839-5937",
+    "quality_rank": "C",
+    "abdc_edition": null,
+    "impact_factor": null,
+    "impact_factor_5yr": null,
+    "jcr_year": null,
+    "sjr": null,
+    "sjr_quartile": null,
+    "h_index": null,
+    "cites_per_doc_2y": null,
+    "scimago_year": null
   },
   {
     "journal_name": "Information & Management",

@@ -2404,3 +2404,234 @@ and Eunice Khoo (JAAF `10.1177/0148558x261483805`).
 passed). `load.py` matches 100% on all 8 universities. `validate_data.py anu` reports 0
 failures.
 
+
+### v29 (6 Oct 2026) — duplicated author, all-caps names, junk links, repository journals
+
+Full detail: `scratch/_anu29/REPORT.md`. Three output defects were found in the 6 Oct audit of
+main (`6d42b21`). Each is fixed by an ANU-only rule at the end of `export._anu_final_rules`;
+each returns immediately for a non-ANU row. Rows stay at **492**, ABDC-ranked **481**, DOIs
+**469**, forthcoming **4**. No other university's output changed (md5 of every file under
+`final output/`).
+
+**A. A duplicated author (1 row).** OpenAlex's record of Xin (Kelly) Liu's JBF 2025 paper
+(`10.1016/j.jbankfin.2025.107621`) lists author `A5069459993` ("Y C Zhang") twice, one copy
+carrying Tianyao Zhang's raw name, so the row showed 4 authors for a 3-author paper.
+`_anu_doi_author_lists`: when an ANU DOI row's OpenAlex record repeats an author id, or has more
+authorships than Crossref has authors for the same DOI, the row takes Crossref's list and count.
+Every ANU DOI row was scanned; it changed this one row: "Xin Liu; Tianyao (Terry) Zhang;
+Yaodong Zhang" (3).
+
+**B. All-caps author names (35 rows).** OpenAlex's display name for Neil Fargher is
+"NEIL L. FARGHER" (27 of his rows, plus 7 co-authored rows held by Isabel Wang, Steven Wu, Lijuan
+Zhang and Marvin Wee). Rebecca Tan's AAR 2005 row had "CHYIWOAN TAN". `_anu_uncap_author_names`:
+an all-caps author name takes that author's mixed-case `raw_author_name` from the same OpenAlex
+record, but only when it has the same surname (the guard against A's id/raw-name mix-up).
+Otherwise it takes the name in title case: initials kept, van/von/de/der/den/ter lower case
+between names, and a Mc/Mac name refused rather than guessed (0 refused). The rule changes the
+authors column only; author_count is unchanged. Titles are not touched: Greg Shailer's 1994
+all-caps title is Crossref's registered form and stays. Fargher's raw name is "Neil Fargher" on
+some records and "Neil L. Fargher" on others; each row follows its own record. Only Tan's row
+used the title-case fallback, because every source has that paper's authors in capitals.
+
+**C. Junk links (2 rows).** Eunice Khoo's AJPT link was an Outlook Safe Links / linkprotect
+wrapper copied from an email, with her email address in its query string. Lily Chen's JIAR link
+was `https://doi:%2010.2308/JIAR-2021-054`. `_anu_repair_links`: a link that is an email-security
+wrapper (safelinks, linkprotect, urldefense) or not an absolute http(s) URL with a real host
+becomes the row's DOI link, or is blanked when there is no DOI. SSRN, publisher and
+tracking-parameter links are left alone.
+
+**Repository journals, widened.** A teammate's 6 Oct schema change (`4c5e038`) makes
+`core/schema.clean_journal` blank any venue name containing "repository" at retrieval. The v26
+rule `_anu_repository_journal_repair` only ran on a repository-named journal, so it never saw
+Sarah Adams' *Third Sector Review* 2020 paper (`10.3316/informit.446762770484313`, whose OpenAlex
+primary location is the UWA repository). A re-run of main therefore lost one genuine ABDC C paper,
+and *Third Sector Review* dropped out of `anu_journals.csv`. The rule now also runs on an ANU DOI
+row whose journal is blank, but only when OpenAlex's primary location for that DOI is itself a
+repository (`_REPOSITORY_JOURNAL_MARKERS`, which already covers the schema's "repository" term).
+Everything else is unchanged: OpenAlex's own citation must be for this paper and name exactly one
+exact ABDC title, or the rule does nothing. It restores exactly that one row, identical to the
+committed one. `core/schema.py` was not edited.
+
+**Accepted (not rules):** Mark Wilson's `10.1007/s10551-015-2888-6` shows fwci 2.9053 /
+citation_percentile 0.9311, this machine's cached OpenAlex values and the same as the v27 commit.
+Main's 4.8699 came from a teammate machine's fresher cache. One "review, OpenAlex type: Book
+Chapter" line for that paper no longer appears in `anu_type_review.csv`, for the same reason.
+
+**Verification:** pytest gives the same 20 failures as main (0 new, 0 ANU; 950 passed).
+`load.py` matches ANU 492/492 (100%). `validate_data.py anu` reports 0 failures and the same
+2 warnings as main's committed data.
+
+#### v29.2 (6 Oct 2026) — from a row-by-row read of the v29 output
+
+Full detail: `scratch/_anu29_2/REPORT.md`. Rows **492 → 491**, ABDC-ranked **481 → 480**, DOIs
+**469 → 468**, forthcoming **4**. Greg Shailer's rows go 40 → 39. No other university's output
+changed.
+
+1. **Invited editors' commentary excluded (1 row, data entry).** Greg Shailer, *Journal of
+   Business Ethics* 2022, `10.1007/s10551-022-05242-7`, "Bringing Excitement to Empirical Business
+   Ethics Research: Thoughts on the Future of Business Ethics" (8 authors, ABDC A). Crossref
+   confirms the record: same title, JBE vol. 180(3) pp. 903–916, 8 authors. Its abstract says:
+   "To commemorate 40 years since the founding of the Journal of Business Ethics, the
+   editors-in-chief of the journal have invited the editors to provide commentaries on the future
+   of business ethics. This essay comprises a selection of commentaries…". OpenAlex types it
+   "article", which is why the non-article filter did not catch it. It was added to
+   `data/publication_exclusions.csv` (keyed by name + DOI) as an invited editors' commentary essay,
+   not a research article. This is the same class the project already excludes (editorials,
+   comment pieces, guest editors' forewords).
+2. **Two possible non-research items checked and kept (0 rows).** The rule was to exclude only
+   if the publisher or OpenAlex labels the item an editorial, introduction, commentary or panel
+   report.
+   - (a) Marvin Wee, *Pacific-Basin Finance Journal* 2019, `10.1016/j.pacfin.2019.05.002`
+     (28 authors):
+     - OpenAlex type: "article". Crossref type: journal-article, pp. 129–150, no abstract
+       registered.
+     - ScienceDirect refused every automated fetch (HTTP 403), so Elsevier's article-type label
+       could not be read.
+     - The authors' accepted manuscript (eprints.lancs.ac.uk/id/eprint/134892) calls it "the
+       lead article" of a virtual special issue that "report[s] on an experiment in which several
+       teams of researchers follow a registration-based editorial process". It runs to 22
+       journal pages.
+     - No label of the excluded kinds was found, so it is kept. Someone with a browser can
+       confirm the ScienceDirect label.
+   - (b) Susanna Ho, *CAIS* 2019, `10.17705/1cais.04439`:
+     - OpenAlex type: "article". The publisher's PDF header says **"Research Paper"**.
+     - The abstract describes a literature synthesis, keyworded "Literature Review". It "underwent
+       editorial review … 2 revisions".
+     - Kept.
+3. **Two Crossref title typos (2 rows, title only).** Neil Fargher:
+   - `10.3905/jfi.2011.20.3.071`: "Equity-ImpliedProbabilities" → "Equity-Implied Probabilities".
+   - `10.2308/ajpt-15117432`: "Service--Evidence … Ratio." → "Service—Evidence … Ratio" (em
+     dash, no trailing full stop).
+   - These are explicit DOI-keyed entries in `export.ANU_TITLE_CORRECTIONS`, applied to every ANU
+     row of the DOI right after `_anu_align_doi_records`.
+   - A `data/overrides.csv` entry was tested and does not work: it is applied before export, and
+     the v27 alignment replaces it with Crossref's registered title.
+   - Greg Shailer's 1994 all-caps title is unchanged.
+4. **Susanna Ho's MISQ 2006 author names (1 row, authors only).** `10.2307/25148757` showed
+   "K Tam; Susanna Ho", the profile list that v28's surname-only branch of `_anu_author_fallback`
+   chose over the JSTOR record's "Tam; Ho". The branch now prefers Crossref's list for the same
+   DOI when every name on it is a full name and the count agrees, and falls back to the profile
+   list otherwise. Exactly one row took the branch: "Kar Yan Tam; Shuk Ying Ho", as on her other
+   rows.
+
+**Side effect, flagged for review.** 7 rows' OpenAlex citation metrics (cited_by_count +1,
+fwci, citation_percentile) changed in the same run. Item 1 removed one DOI before enrichment
+(588 → 587). OpenAlex enrichment fetches sorted DOIs 25 at a time and caches by request, so every
+batch after that DOI was a new request: 23 batches were fetched fresh and carry OpenAlex's
+current figures. No rule changed these values.
+
+**Tests.**
+- `tests/test_anu_final_data.py`: the JBE DOI is absent; no title has a word glued to the next
+  (`GLUED_WORD_ALLOWED`, empty: no brand names occur); no title ends in a full stop.
+- `tests/test_anu_final_rules.py`: Crossref preferred; profile used when Crossref has initials
+  only, a different count or no record; a non-ANU row is untouched.
+
+**Verification.**
+- pytest: 19 failures, all in main's 20-failure set, 0 new, 0 ANU, 957 passed. The one that no
+  longer fails, `test_database_load::test_every_researcher_in_the_files_is_in_the_database`, read
+  a stale local database (USYD's Martin Bugeja) that the v29.1 `load.py` run refreshed.
+- `load.py`: ANU 491/491 (100%). `validate_data.py anu`: 0 failures, the same 2 warnings as main.
+
+#### v29.3 (7 Oct 2026) — from an independent audit of the v29.2 output
+
+All rules are ANU-only (`export._anu_final_rules`, after the v29 rules) except item 2, which is a
+format-only change in the shared JSON writer. Each rule logs every row it touches to the run log
+("ANU rules (v29.3)").
+
+1. **Two DOIs that do not exist (2 rows).** Marvin Wee, *Company and Securities Law Journal* 2021,
+   `10.3316/agispt.20211028055941`; Sarah Adams, *Third Sector Review* 2020,
+   `10.3316/informit.446762770484313`. Both return 404 from `https://doi.org/api/handles/<doi>`
+   and Crossref has no record. A Crossref title search (also with journal and author names)
+   found no real DOI. Rule `_anu_drop_dead_dois`: a DOI with no Crossref record AND a doi.org 404
+   is removed, with article_url/link where they are its doi.org link. A failed lookup removes
+   nothing. It runs at export, after OpenAlex enrichment, so the enrichment batches did not
+   change. Citation metrics stay only when the DOI's OpenAlex work has the row's title; both
+   matched, so both kept them.
+2. **NaN in the journals JSON (shared writer).** `export.write` now converts float NaN/infinity
+   to null and writes with `allow_nan=False`. No other value changes and no CSV changes.
+   `load.py` reads the CSVs, so the database is unaffected. Every other university's committed
+   `*_journals.json` still contains NaN until its next run: adelaide (4 lines), monash (1),
+   unimelb (1), unsw (4), uq (1), usyd (6), uwa (3).
+3. **Space in a URL (1 row).** `_anu_encode_url_spaces`: spaces in link/oa_url/article_url are
+   percent-encoded; a value that is still not an http(s) URL is blanked. Mohammed Abdullah Al
+   Mamun's oa_url now returns HTTP 200 (application/pdf).
+4. **Forthcoming status: not changed.** The proposed rule ("no volume, issue, page/article number
+   or print date, year >= 2025") selects only 2 rows (Kathy Wang and Isabel Wang, JBE), because 6
+   of the 8 online-first records carry a Crossref `article-number`, usually the DOI suffix itself
+   (`abac.70030`, `mnsc.2024.08157`, `0148558X261483805`). Left for a decision; see the report.
+5. **One paper, one rendering (2 pairs, 4 rows).** `_anu_one_rendering_per_paper`: DOI-less rows
+   of different ANU researchers with the same journal, year and title (ignoring a leading "The",
+   case and punctuation) take the title and authors of a cited record in
+   `data/anu_paper_records.csv`; without one they are left alone and the refusal logged.
+   - eJTR 2023 (Steven Wu, Xiu-Ye Zhang): "The geography of corporate tax avoidance", Yuan Helen
+     Ping; Hai Wu; Xiu-Ye Zhang (the journal's issue PDF, vol. 20 no. 2, pp. 102-167). The PDF
+     gives steven.wu@anu.edu.au for Hai Wu, so the owner-name data test accepts a cited byline.
+   - IJM 2006 (Juliana Ng, Rebecca Tan): "Conflict Management Styles of Male and Female Junior
+     Accountants", Christopher C A Chan; Gary Monroe; Juliana Ng; Rebecca Tan (ProQuest, vol. 23
+     no. 2, pp. 289-295).
+6. **Practitioner and non-journal outlets: all 4 kept.** The brief allowed exclusion only with
+   evidence of an ISBN and no ISSN, or of a non-refereed practitioner publication.
+   - *Accountants Digest*: ISSN 0307-0336 (NLA record 102448), published by the ICAEW's technical
+     services department.
+   - *Accounting and Finance in Transition*: a Greenwich University Press series with per-volume
+     ISBNs, but also a series ISSN 1743-1999 (OpenLibrary OL25015738M). The paper was presented
+     at the 4th ICAFT conference (AIB research portal).
+   - *Public Fund Digest*: the ICGFM periodical later renamed the International Journal on
+     Governmental Financial Management. No statement of its review status was found.
+   - *Journal of the Asia-Pacific Centre for Environmental Accountability*: ISSN 1448-6679.
+   The journal name is fixed by `_anu_capitalise_hyphenated_journals`: in a profile-parsed
+   journal name, a hyphenated word whose first part is capitalised gets its second part
+   capitalised. It changed exactly that one name. The journals table is renamed to match.
+7. **OpenAlex links (49 rows).** `_anu_doi_links`: a row with a DOI whose link is an openalex.org
+   page links to `https://doi.org/<doi>`. That was 50 rows before item 1 removed Sarah Adams'
+   DOI. Her row keeps its OpenAlex link. Other universities have no single convention: every
+   one except UWA has OpenAlex links on some DOI rows (unimelb 300, unsw 94, adelaide 30, usyd
+   27, monash 22, uq 5).
+8. **Unicode hyphens (80 rows).** `_anu_plain_hyphens` runs last and replaces U+2010/U+2011 with
+   "-" in title, authors and journal_name. En and em dashes are kept. 34 titles and 50 author
+   lists were affected (4 rows had both), including researcher names such as "Xiu‐Ye Zhang" and
+   "Wai‐Man Liu".
+
+**Verification.** Rows 491, ABDC 480, DOIs 466, forthcoming 4. Every changed cell traces to items
+1–8 (`scratch/_anu29_3/row_diff.csv`). No citation metric changed. Only `final output/anu/`
+changed. pytest: 18 failures, all in the v29 set, 0 new, 0 ANU, 978 passed. `load.py`: ANU
+491/491. `validate_data.py anu`: 0 failures, the same 2 warnings.
+
+#### v29.4 (7 Oct 2026) — publication status from the DOI record
+
+**Task A — status rule (5 rows changed).** A row with a DOI is "forthcoming" when its Crossref
+record has no volume, no issue, no page and no published-print date, and the row's year is 2025 or
+later. Otherwise it is "published". A DOI with no record to check stays "published". The profile
+label no longer decides a DOI row (`export._anu_doi_status`). Crossref's `article-number` is not
+counted: on 6 of the 8 online-first records it is set, usually to the DOI suffix (`abac.70030`,
+`mnsc.2024.08157`), so v29.3's draft rule that counted it selected only 2 rows. DOI-less rows are
+unchanged: they need an explicit profile label from this year or last.
+- Result: exactly 9 forthcoming rows:
+  - Eunice Khoo, JAAF;
+  - Xin (Kelly) Liu and Kun Li, Management Science;
+  - Scarlett Luo, Abacus;
+  - Kathy Wang, JBE;
+  - Xiu-Ye Zhang, IJA and EFM;
+  - Isabel Wang, JBE;
+  - Sonali Walpola, Australian Tax Forum (no DOI).
+- The 5 changed rows are Luo, Kathy Wang, Zhang ×2 and Isabel Wang.
+- The site, `load.py` and `app.py` only store and display the status; nothing is hidden or
+  counted differently.
+
+**Task B — not done.** The proposed exclusion of Rebecca Tan's *Accounting and Finance in
+Transition* 4 (2008) row rested on two sources, and on re-reading neither says what the reason
+would claim:
+- The research.aib.edu.au record is a peer-reviewed 4th ICAFT (2006) conference paper by the same
+  authors, but with a different title ("Sustainability ratings: A social responsibility investment
+  perspective on listed airline companies in Australia"). It does not mention the 2008 volume.
+- The OpenLibrary record (OL25015738M) covers volumes 1–2 (2004). It does not mention volume 4,
+  and it prints a series ISSN (1743-1999).
+
+A search for the row's exact title found no record. The row stays, as do Accountants Digest,
+Public Fund Digest and APCEA.
+
+**Verification.**
+- Rows 491, ABDC 480, DOIs 466, forthcoming 9.
+- Row diff: 5 `publication_status` cells, nothing else. Only `final output/anu/` changed.
+- pytest: 18 failures, the same set as v29.3, 0 ANU. `load.py`: ANU 491/491. `validate_data.py anu`:
+  0 failures.
