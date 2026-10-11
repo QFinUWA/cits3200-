@@ -39,6 +39,8 @@ class FakeManager:
 def admin_app(monkeypatch):
     monkeypatch.setenv("ADMIN_PASSWORD", "secret")
     monkeypatch.setenv("SECRET_KEY", "test-secret-key")
+    # Refresh is off unless switched on; these tests exercise the enabled path.
+    monkeypatch.setenv("REFRESH_ENABLED", "1")
     manager = FakeManager()
     app = Flask(__name__)
     app.register_blueprint(make_admin_bp(FakeSessionMaker(), refresh_manager=manager))
@@ -92,6 +94,34 @@ def test_refresh_api_rejects_an_unknown_university(admin_app):
     response = client.post("/api/admin/refresh", json={"source": "anu; rm -rf /"})
     assert response.status_code == 400
     assert manager.starts == 0
+
+
+def test_switched_off_refresh_is_refused_before_starting(admin_app, monkeypatch):
+    app, manager = admin_app
+    monkeypatch.delenv("REFRESH_ENABLED")
+    client = app.test_client()
+    login(client)
+    res = client.post("/api/admin/refresh", json={"source": "anu"})
+    assert res.status_code == 403
+    assert res.get_json()["enabled"] is False
+    assert "switched off" in res.get_json()["error"]
+    assert manager.starts == 0
+    assert client.get("/api/admin/refresh/status").status_code == 200
+
+
+@pytest.mark.parametrize("value, enabled", [
+    (None, False), ("", False), ("0", False), ("no", False),
+    ("1", True), ("true", True), ("YES", True),
+])
+def test_refresh_switch_reads_env_at_call_time(tmp_path, monkeypatch, value, enabled):
+    manager = RefreshManager(root=tmp_path, db_path=tmp_path / "research.db")
+    if value is None:
+        monkeypatch.delenv("REFRESH_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("REFRESH_ENABLED", value)
+    snap = manager.snapshot()
+    assert snap["enabled"] is enabled
+    assert "switched off" in snap["disabled_message"]
 
 
 def test_discovery_uses_go8_order(tmp_path):

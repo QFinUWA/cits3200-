@@ -14,7 +14,14 @@ app = Flask(
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "site", "research.db")
+# The deployed container keeps the database on its data volume
+# (APP_DB_PATH=/app/var/research.db). Not RESEARCH_DB_PATH: the refresh sets
+# that on load.py to point it at a staging copy.
+DB_PATH = os.environ.get("APP_DB_PATH") or os.path.join(BASE_DIR, "site", "research.db")
+
+# Served over HTTPS (Caddy) when deployed, so the admin session cookie is
+# never sent in the clear. `python app.py` below switches it off for http.
+app.config["SESSION_COOKIE_SECURE"] = True
 
 engine = create_engine(
     f"sqlite:///{DB_PATH}",
@@ -43,7 +50,7 @@ UNIVERSITY_CODES = {
 }
 
 from admin import ENTITIES, _export_df, make_admin_bp
-app.register_blueprint(make_admin_bp(Session))
+app.register_blueprint(make_admin_bp(Session, db_path=DB_PATH))
 
 
 @app.route("/")
@@ -484,6 +491,7 @@ def get_publications(researcher_id):
 
 
 if __name__ == "__main__":
+    app.config["SESSION_COOKIE_SECURE"] = False
     app.run(
         host="127.0.0.1",
         port=5000,

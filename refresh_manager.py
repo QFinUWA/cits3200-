@@ -33,9 +33,29 @@ G8_ORDER = (
 
 _RUNNING_STATES = {"queued", "running"}
 
+# Shown when the admin presses Refresh on a server where it is switched off.
+REFRESH_DISABLED_MESSAGE = (
+    "Data refresh is switched off on this server. The data is refreshed "
+    "offline and released with each deployment."
+)
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def refresh_enabled() -> bool:
+    """Whether REFRESH_ENABLED switches the admin refresh on.
+
+    Off unless explicitly set, so a server whose env file forgot the variable
+    never exposes a scrape it cannot run. Read at call time, so changing the
+    env file and recreating the container is enough.
+    """
+    return os.environ.get("REFRESH_ENABLED", "").strip().lower() in {"1", "true", "yes"}
+
+
+def _switch_state() -> dict:
+    return {"enabled": refresh_enabled(), "disabled_message": REFRESH_DISABLED_MESSAGE}
 
 
 def _clarivate_enabled(value: str | None) -> bool:
@@ -79,6 +99,7 @@ class RefreshManager:
             "log_path": None,
             "clarivate": "enabled" if _clarivate_enabled(os.environ.get("CLARIVATE_API_KEY"))
             else "skipped (CLARIVATE_API_KEY not configured)",
+            **_switch_state(),
         }
 
     def snapshot(self) -> dict:
@@ -90,6 +111,7 @@ class RefreshManager:
                 "enabled" if _clarivate_enabled(os.environ.get("CLARIVATE_API_KEY"))
                 else "skipped (CLARIVATE_API_KEY not configured)"
             )
+        snap.update(_switch_state())
         return snap
 
     def start(self, source: str | None = None) -> tuple[bool, dict]:
@@ -135,6 +157,7 @@ class RefreshManager:
                 "log_path": None,
                 "clarivate": "enabled" if _clarivate_enabled(os.environ.get("CLARIVATE_API_KEY"))
                 else "skipped (CLARIVATE_API_KEY not configured)",
+                **_switch_state(),
             }
             state = copy.deepcopy(self._state)
 

@@ -36,7 +36,7 @@ from flask import (Blueprint, abort, jsonify, redirect, request, send_file,
 from sqlalchemy.orm import joinedload
 
 from models import Publication, Researcher, Journal
-from refresh_manager import RefreshManager
+from refresh_manager import REFRESH_DISABLED_MESSAGE, RefreshManager, refresh_enabled
 
 # --------------------------------------------------------------------------
 # per-dataset config  (key first, then the columns that dataset owns)
@@ -330,11 +330,13 @@ def _insert(session_, entity, values):
 # blueprint
 # --------------------------------------------------------------------------
 
-def make_admin_bp(Session, refresh_manager=None):
+def make_admin_bp(Session, refresh_manager=None, db_path=None):
     bp = Blueprint("admin", __name__)
     if refresh_manager is None:
         engine = getattr(Session, "kw", {}).get("bind")
-        refresh_manager = RefreshManager(engine=engine)
+        # The live database the app serves, so a refresh swaps the right file
+        # and builds its staging copy beside it (same filesystem for os.replace).
+        refresh_manager = RefreshManager(engine=engine, db_path=db_path)
 
     @bp.record_once
     def _setup(state):
@@ -438,6 +440,10 @@ def make_admin_bp(Session, refresh_manager=None):
     @bp.post("/api/admin/refresh")
     @login_required
     def refresh_start():
+        # Switched off on the deployed server (REFRESH_ENABLED unset): refuse
+        # before anything starts, whatever the page sent.
+        if not refresh_enabled():
+            return jsonify(error=REFRESH_DISABLED_MESSAGE, enabled=False), 403
         # Optional {"source": "monash"} refreshes one university; omitted means all.
         source = (request.get_json(silent=True) or {}).get("source") or None
         try:

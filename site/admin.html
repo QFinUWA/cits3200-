@@ -105,6 +105,10 @@
     const refreshSources = el("refresh-sources");
     const refreshScope = el("refresh-scope");
     let pollTimer = null;
+    // Set from the status endpoint. When the server has refresh switched off,
+    // the button stays clickable (aria-disabled, not `disabled`) so a click can
+    // explain why nothing happens.
+    let refreshOff = null;
 
     function labelRefreshButton() {
       refreshBtn.textContent = refreshScope.value
@@ -157,6 +161,7 @@
     });
 
     refreshBtn.addEventListener("click", async () => {
+      if (refreshOff) { showRefreshMessage(refreshOff); return; }
       const source = refreshScope.value;
       const ok = confirm(
         (source ? `Refresh ${source} now? ` : "Refresh every university now? ") +
@@ -202,8 +207,10 @@
       refreshState.textContent = state;
       refreshState.dataset.state = state;
       const busy = state === "queued" || state === "running";
+      refreshOff = data.enabled === false ? (data.disabled_message || "Data refresh is switched off.") : null;
       refreshBtn.disabled = busy;
-      refreshScope.disabled = busy;
+      refreshBtn.setAttribute("aria-disabled", refreshOff ? "true" : "false");
+      refreshScope.disabled = busy || !!refreshOff;
       fillScope(data.available_sources);
       el("refresh-current").textContent = data.current_source || "—";
       el("refresh-started").textContent = data.started_at || "—";
@@ -211,7 +218,7 @@
       el("refresh-clarivate").textContent = data.clarivate || "—";
       el("refresh-backup").textContent = data.backup_path || "—";
       el("refresh-log").textContent = data.log_path || "—";
-      showRefreshMessage(data.message || "");
+      showRefreshMessage(refreshOff && state === "idle" ? refreshOff : (data.message || ""));
 
       refreshSources.replaceChildren();
       const sourceRows = data.sources && data.sources.length

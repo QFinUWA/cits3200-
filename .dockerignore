@@ -1,0 +1,32 @@
+# Kept out of the image: secrets, local state the container keeps on its
+# volume instead, and working files the site and pipeline never read.
+.git
+.github
+.githooks
+.env
+.env.*
+!.env.example
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.venv
+.claude
+scratch
+cache
+backups
+logs
+site/research*.db
+*.docx
+notebooks
+tests
+audit
+
+# Root-level working copies from before the pipeline wrote to final output/.
+# Nothing in run.py, core/, enrichment/, info/ or base_scrapers/ reads them.
+*_publications.csv
+*_staff.csv
+anu_journals.csv
+combined_publications.csv
+scimago.csv
+harvest.csv
+harvest.json

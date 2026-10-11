@@ -517,6 +517,10 @@ table.university-ranking-table tbody td:nth-child(2) a {
 .pager button:hover:not(:disabled) { background: #f1f4f8; }
 .pager button[aria-current="true"] { background: var(--blue); border-color: var(--blue); color: #fff; }
 .pager button:disabled { opacity: .45; cursor: default; }
+/* Refresh switched off on this server: looks disabled, still clickable so it
+   can say why (see admin.html). */
+.btn[aria-disabled="true"],
+.btn[aria-disabled="true"]:hover { background: var(--blue); opacity: .45; cursor: not-allowed; }
 
 /* ---------- 9. Researcher detail --------------------------- */
 .researcher-head { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 4px; }
