@@ -163,7 +163,13 @@ const ALL = await loadResearchers();
   const preUni = param('university');
   if (preUni) fUni.value = preUni;
 
+  // Each filter change asks the server again, and answers can arrive out of
+  // order: the full list takes ~2s, "smith" takes 0.02s. Without this, typing
+  // "smith" showed the results for "s", whose slower answer landed last.
+  let latestRequest = 0;
+
   async function apply() {
+    const thisRequest = ++latestRequest;
 
     const query = new URLSearchParams();
 
@@ -188,6 +194,8 @@ const ALL = await loadResearchers();
     );
 
     const data = await response.json();
+
+    if (thisRequest !== latestRequest) return;   // a newer filter change is in flight
 
     view = data.researchers || [];
 
