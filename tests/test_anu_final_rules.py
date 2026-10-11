@@ -595,17 +595,36 @@ _RECORDS = {"10.1287/mnsc.2024.08157": {"published-online": {"date-parts": [[202
             "10.1111/abac.70030": {"published-online": {"date-parts": [[2026, 3, 10]]}}}
 
 
-def test_forthcoming_only_when_labelled_and_not_in_an_issue():
+def test_forthcoming_from_the_doi_record_or_a_recent_label():
     rows = _status_rows()
     names = {r["name"] for r in rows}
     export._anu_publication_status(rows, _labelled_pubs(), names, _RECORDS, this_year=2026)
     status = {r["name"]: r["publication_status"] for r in rows}
-    assert status["Xin (Kelly) Liu"] == "forthcoming"        # labelled; no volume yet
-    assert status["Kun Li"] == "forthcoming"                 # same paper, same status
+    assert status["Xin (Kelly) Liu"] == "forthcoming"        # record: no volume, issue, page, print
+    assert status["Kun Li"] == "forthcoming"                 # same record, same status
     assert status["Mark Wilson"] == "published"              # labelled, but now in an issue
     assert status["Sonali Walpola"] == "forthcoming"         # labelled "in press", no DOI
     assert status["Isabel Wang"] == "published"              # a 2023 label is stale
-    assert status["Scarlett Luo"] == "published"             # online-first, never labelled
+    assert status["Scarlett Luo"] == "forthcoming"           # v29.4: online-first, label not needed
+
+
+def _doi_status(record, year="2026"):
+    row = {"name": "Scarlett Luo", "doi": "10.1111/abac.70030", "year": year, "title": "T"}
+    export._anu_publication_status([row], [], {"Scarlett Luo"},
+                                   {"10.1111/abac.70030": record} if record is not None else {},
+                                   this_year=2026)
+    return row["publication_status"]
+
+
+def test_doi_status_ignores_article_number_but_not_issue_placement():
+    online = {"published-online": {"date-parts": [[2026, 3, 10]]}}
+    assert _doi_status(dict(online, **{"article-number": "abac.70030"})) == "forthcoming"
+    assert _doi_status(dict(online, volume="62")) == "published"
+    assert _doi_status(dict(online, issue="1")) == "published"
+    assert _doi_status(dict(online, page="1-20")) == "published"
+    assert _doi_status(dict(online, **{"published-print": {"date-parts": [[2026, 6]]}})) == "published"
+    assert _doi_status(online, year="2024") == "published"   # before 2025
+    assert _doi_status(None) == "published"                  # no record to check
 
 
 def test_status_rule_leaves_non_anu_rows_untouched():
@@ -627,3 +646,281 @@ def test_surname_only_doi_author_list_yields_to_the_profile_list():
     other = dict(row, name="Someone Else")
     before = copy.deepcopy(other)
     assert not export._anu_author_fallback(other, ANU) and other == before
+
+
+# ------------------------------- v29: DOI author lists, all-caps names, links
+
+def _authorship(oa_id, shown, raw):
+    return {"author": {"id": f"https://openalex.org/{oa_id}", "display_name": shown},
+            "raw_author_name": raw}
+
+
+_LIU_DOI = "10.1016/j.jbankfin.2025.107621"
+_LIU_WORK = {"authorships": [_authorship("A5007778358", "Xin Liu", "Xin Liu"),
+                             _authorship("A5108143707", "Tianyao Zhang", "Tianyao (Terry) Zhang"),
+                             _authorship("A5069459993", "Y C Zhang", "Tianyao (Terry) Zhang"),
+                             _authorship("A5069459993", "Y C Zhang", "Yaodong Zhang")]}
+_LIU_CROSSREF = {_LIU_DOI: {"author": [{"given": "Xin", "family": "Liu"},
+                                       {"given": "Tianyao (Terry)", "family": "Zhang"},
+                                       {"given": "Yaodong", "family": "Zhang"}]}}
+
+
+def test_repeated_openalex_author_takes_the_crossref_list():
+    row = {"name": "Xin (Kelly) Liu", "doi": _LIU_DOI, "author_count": 4,
+           "authors": "Xin Liu; Tianyao Zhang; Y C Zhang; Y C Zhang"}
+    works = export._anu_doi_author_lists([row], ANU, _LIU_CROSSREF, fetch=lambda d: _LIU_WORK)
+    assert row["authors"] == "Xin Liu; Tianyao (Terry) Zhang; Yaodong Zhang"
+    assert row["author_count"] == 3 and works == {_LIU_DOI: _LIU_WORK}
+    # A clean OpenAlex record that agrees with Crossref's count is left alone.
+    clean = {"name": "Xin (Kelly) Liu", "doi": _LIU_DOI, "author_count": 3, "authors": "As it was"}
+    export._anu_doi_author_lists([clean], ANU, _LIU_CROSSREF,
+                                 fetch=lambda d: {"authorships": [_LIU_WORK["authorships"][i]
+                                                                  for i in (0, 1, 3)]})
+    assert clean["authors"] == "As it was"
+    other = {"name": "Someone Else", "doi": _LIU_DOI, "author_count": 4, "authors": "Y C Zhang; Y C Zhang"}
+    before = copy.deepcopy(other)
+    export._anu_doi_author_lists([other], ANU, _LIU_CROSSREF, fetch=lambda d: _LIU_WORK)
+    assert other == before
+
+
+def test_all_caps_author_name_takes_raw_name_else_title_case():
+    doi = "10.1111/acfi.12280"
+    works = {doi: {"authorships": [_authorship("A5007232227", "NEIL L. FARGHER", "Neil Fargher"),
+                                   _authorship("A5059540919", "Warrick van Zyl", "Warrick van Zyl")]}}
+    row = {"name": "Neil Fargher", "doi": doi, "author_count": 2, "title": "AN ALL-CAPS TITLE",
+           "authors": "NEIL L. FARGHER; Warrick van Zyl"}
+    export._anu_uncap_author_names([row], {"Neil Fargher"}, works)
+    assert row["authors"] == "Neil Fargher; Warrick van Zyl"
+    assert row["title"] == "AN ALL-CAPS TITLE" and row["author_count"] == 2
+    # No mixed-case raw name: title case, initials and particles kept.
+    tan = {"name": "Rebecca Tan", "doi": None, "authors": "CHYIWOAN TAN; JAN L. VAN DER BERG; Phil Hancock"}
+    export._anu_uncap_author_names([tan], {"Rebecca Tan"}, {})
+    assert tan["authors"] == "Chyiwoan Tan; Jan L. van der Berg; Phil Hancock"
+    # A raw name for a different surname is not used (task A's mix-up).
+    mixed = {doi: {"authorships": [_authorship("A1", "Y C ZHANG", "Tianyao (Terry) Liu")]}}
+    row2 = {"name": "Neil Fargher", "doi": doi, "authors": "Y C ZHANG"}
+    export._anu_uncap_author_names([row2], {"Neil Fargher"}, mixed)
+    assert row2["authors"] == "Y C Zhang"
+    # A Mc/Mac surname is refused rather than guessed.
+    mc = {"name": "Neil Fargher", "doi": None, "authors": "IAN MCPHEE"}
+    export._anu_uncap_author_names([mc], {"Neil Fargher"}, {})
+    assert mc["authors"] == "IAN MCPHEE"
+    other = dict(row, name="Someone Else", authors="NEIL L. FARGHER; Warrick van Zyl")
+    before = copy.deepcopy(other)
+    export._anu_uncap_author_names([other], {"Neil Fargher"}, works)
+    assert other == before
+
+
+def test_junk_or_wrapped_link_becomes_the_doi_link():
+    wrapped = ("https://aus01.safelinks.protection.outlook.com/?url=https%3A%2F%2Flinkprotect.cudasvc.com"
+               "%2Furl%3Fa%3Dhttps%253a%252f%252fdoi.org%252f10.2308%252fAJPT-2022-188")
+    rows = [{"name": "Eunice Khoo", "doi": "10.2308/ajpt-2022-188",
+             "article_url": "https://doi.org/10.2308/ajpt-2022-188", "link": wrapped},
+            {"name": "Lily Chen", "doi": "10.2308/jiar-2021-054",
+             "article_url": "https://doi.org/10.2308/jiar-2021-054",
+             "link": "https://doi:%2010.2308/JIAR-2021-054"},
+            {"name": "Lily Chen", "doi": None, "article_url": None, "link": "doi:10.1/x"}]
+    keep = [{"name": "Lily Chen", "doi": "10.1/y", "article_url": "https://doi.org/10.1/y", "link": link}
+            for link in ("https://papers.ssrn.com/sol3/papers.cfm?abstract_id=123",
+                         "https://www.sciencedirect.com/science/article/pii/S0?via%3Dihub",
+                         "https://onlinelibrary.wiley.com/doi/10.1/y?utm_source=x", "")]
+    names = {"Eunice Khoo", "Lily Chen"}
+    export._anu_repair_links(rows + keep, names)
+    assert [r["link"] for r in rows] == ["https://doi.org/10.2308/ajpt-2022-188",
+                                         "https://doi.org/10.2308/jiar-2021-054", None]
+    assert [r["link"] for r in keep][:3] == ["https://papers.ssrn.com/sol3/papers.cfm?abstract_id=123",
+                                             "https://www.sciencedirect.com/science/article/pii/S0?via%3Dihub",
+                                             "https://onlinelibrary.wiley.com/doi/10.1/y?utm_source=x"]
+    other = {"name": "Someone Else", "doi": "10.1/z", "article_url": "https://doi.org/10.1/z", "link": wrapped}
+    before = copy.deepcopy(other)
+    export._anu_repair_links([other], names)
+    assert other == before
+
+
+# ------------------------------- v29.2: surname-only list prefers Crossref
+
+_MISQ = {"author": [{"given": "Kar Yan", "family": "Tam"}, {"given": "Shuk Ying", "family": "Ho"}]}
+
+
+def _surname_only_row(name="Susanna Ho"):
+    return {"name": name, "doi": "10.2307/25148757", "n_authors": 2, "authors": "Tam; Ho",
+            "_anu_profile_n_authors": 2, "_anu_profile_authors": "K Tam; Susanna Ho"}
+
+
+def test_surname_only_list_prefers_crossref_full_names():
+    row = _surname_only_row()
+    assert export._anu_author_fallback(row, ANU, crossref_fetch=lambda d: _MISQ)
+    assert row["authors"] == "Kar Yan Tam; Shuk Ying Ho" and row["n_authors"] == 2
+
+
+def test_surname_only_list_uses_profile_when_crossref_lacks_full_names():
+    initials = {"author": [{"given": "K.", "family": "Tam"}, {"given": "S. Y.", "family": "Ho"}]}
+    one_short = {"author": _MISQ["author"][:1]}
+    for record in (initials, one_short, {}):
+        row = _surname_only_row()
+        assert export._anu_author_fallback(row, ANU, crossref_fetch=lambda d, r=record: r)
+        assert row["authors"] == "K Tam; Susanna Ho"
+
+
+def test_surname_only_crossref_preference_leaves_non_anu_rows_untouched():
+    row = _surname_only_row(name="Someone Else")
+    before = copy.deepcopy(row)
+    assert not export._anu_author_fallback(row, ANU, crossref_fetch=lambda d: _MISQ)
+    assert row == before
+
+
+# ------------------------------------------- v29.3: 7 Oct 2026 audit fixes
+
+V293 = ANU | {"Marvin Wee", "Sarah Adams", "Steven Wu", "Xiu-Ye Zhang", "Juliana Ng",
+              "Rebecca Tan", "Mohammed Abdullah Al Mamun"}
+
+
+def _doi_row(name, doi, title="A paper", link=None):
+    return {"name": name, "doi": doi, "title": title, "article_url": f"https://doi.org/{doi}",
+            "link": link or f"https://doi.org/{doi}", "cited_by_count": 3, "fwci": 0.5,
+            "citation_percentile": 0.7}
+
+
+def test_dead_doi_is_removed_and_metrics_kept_only_on_a_title_match():
+    dead, alive = "10.3316/agispt.1", "10.3316/datacite.2"
+    rows = [_doi_row("Marvin Wee", dead, "The State of X"),
+            _doi_row("Sarah Adams", dead, "Another paper", link="https://openalex.org/W1"),
+            _doi_row("Janet Lee", alive),
+            _doi_row("Lily Chen", "10.1/has-crossref")]
+    records = {dead: {}, alive: {}, "10.1/has-crossref": {"title": ["A paper"]}}
+    works = {dead: {"title": "The state of X"}}
+    asked = []
+
+    def handle(d):
+        asked.append(d)
+        return None if d == dead else {"responseCode": 1}
+
+    export._anu_drop_dead_dois(rows, V293, records, works, handle)
+    wee, adams, lee, chen = rows
+    assert (wee["doi"], wee["article_url"], wee["link"]) == (None, None, None)
+    assert wee["cited_by_count"] == 3                       # OpenAlex title matches
+    assert adams["doi"] is None and adams["link"] == "https://openalex.org/W1"
+    assert adams["cited_by_count"] is None and adams["fwci"] is None
+    assert lee["doi"] == alive                              # doi.org knows it
+    assert chen["doi"] == "10.1/has-crossref"
+    assert "10.1/has-crossref" not in asked                 # Crossref record: no lookup
+
+
+def test_dead_doi_kept_when_the_lookup_fails_and_for_non_anu_rows():
+    def boom(d):
+        raise OSError("offline")
+    row = _doi_row("Marvin Wee", "10.3316/x")
+    export._anu_drop_dead_dois([row], V293, {"10.3316/x": {}}, {}, boom)
+    assert row["doi"] == "10.3316/x"
+    other = _doi_row("Someone Else", "10.3316/x")
+    before = copy.deepcopy(other)
+    export._anu_drop_dead_dois([other], V293, {"10.3316/x": {}}, {}, lambda d: None)
+    assert other == before
+
+
+def test_url_spaces_are_encoded_and_non_urls_blanked():
+    row = {"name": "Mohammed Abdullah Al Mamun", "doi": "10.61607/x",
+           "oa_url": "https://financedu.ac.bd/news_event/2317533688041. Abdullah Al Mamun.pdf",
+           "link": "not a url at all", "article_url": "https://doi.org/10.61607/x"}
+    export._anu_encode_url_spaces([row], V293)
+    assert row["oa_url"] == "https://financedu.ac.bd/news_event/2317533688041.%20Abdullah%20Al%20Mamun.pdf"
+    assert row["link"] is None
+    assert row["article_url"] == "https://doi.org/10.61607/x"
+    other = {"name": "Someone Else", "oa_url": "https://x.org/a b.pdf", "link": None, "article_url": None}
+    before = copy.deepcopy(other)
+    export._anu_encode_url_spaces([other], V293)
+    assert other == before
+
+
+_CITED = export.anu_paper_records(ROOT / "data" / "anu_paper_records.csv")
+
+
+def _paper(name, title, authors, journal="eJournal of Tax Research", year="2023", n=3):
+    return {"name": name, "doi": None, "journal_name": journal, "year": year,
+            "title": title, "authors": authors, "author_count": n}
+
+
+def test_same_doi_less_paper_takes_the_cited_rendering():
+    rows = [_paper("Steven Wu", "The geography of corporate tax avoidance", "Y. Ping; Steven Wu; X Zhang"),
+            _paper("Xiu-Ye Zhang", "The Geography of Corporate Tax-Avoidance", "Xiu-Ye Zhang; Y. H. Ping; H Wu"),
+            _paper("Juliana Ng", "The Conflict Management Styles of Male and Female Junior Accountants",
+                   "C. Chan; G. Monroe; Juliana Ng; R. Tan", "International Journal of Management", "2006", 4),
+            _paper("Rebecca Tan", "Conflict Management Styles of Male and Female Junior Accountants",
+                   "C. C. A. Chan; G. M. Monroe; J. Ng; Rebecca Tan", "International Journal of Management", "2006", 4)]
+    export._anu_one_rendering_per_paper(rows, V293, _CITED)
+    assert {(r["title"], r["authors"], r["author_count"]) for r in rows[:2]} == {
+        ("The geography of corporate tax avoidance", "Yuan Helen Ping; Hai Wu; Xiu-Ye Zhang", 3)}
+    assert {(r["title"], r["authors"], r["author_count"]) for r in rows[2:]} == {
+        ("Conflict Management Styles of Male and Female Junior Accountants",
+         "Christopher C A Chan; Gary Monroe; Juliana Ng; Rebecca Tan", 4)}
+
+
+def test_same_paper_rule_needs_two_researchers_a_cited_record_and_anu_rows():
+    one_owner = [_paper("Steven Wu", "The geography of corporate tax avoidance", "a"),
+                 _paper("Steven Wu", "Geography of corporate tax avoidance", "b")]
+    uncited = [_paper("Steven Wu", "Another paper", "a"), _paper("Xiu-Ye Zhang", "Another Paper", "b")]
+    other_year = [_paper("Steven Wu", "The geography of corporate tax avoidance", "a"),
+                  _paper("Xiu-Ye Zhang", "The geography of corporate tax avoidance", "b", year="2022")]
+    non_anu = [_paper("Someone Else", "The geography of corporate tax avoidance", "a"),
+               _paper("Another Person", "Geography of corporate tax avoidance", "b")]
+    for rows in (one_owner, uncited, other_year, non_anu):
+        before = copy.deepcopy(rows)
+        export._anu_one_rendering_per_paper(rows, V293, _CITED)
+        assert rows == before
+
+
+def test_hyphenated_profile_journal_word_is_capitalised():
+    export.ANU_JOURNAL_RENAMES.clear()
+    rows = [{"name": "Rebecca Tan", "source": "ANU staff profile", "doi": None,
+             "journal_name": "Journal of the Asia-pacific Centre for Environmental Accountability"},
+            {"name": "Rebecca Tan", "source": "ORCID", "doi": None, "journal_name": "Asia-pacific Review"},
+            {"name": "Rebecca Tan", "source": "ANU staff profile", "doi": None, "journal_name": "eJournal of non-profit"},
+            {"name": "Someone Else", "source": "ANU staff profile", "doi": None, "journal_name": "Asia-pacific Review"}]
+    export._anu_capitalise_hyphenated_journals(rows, V293)
+    assert [r["journal_name"] for r in rows] == [
+        "Journal of the Asia-Pacific Centre for Environmental Accountability",
+        "Asia-pacific Review", "eJournal of non-profit", "Asia-pacific Review"]
+    assert export.ANU_JOURNAL_RENAMES == {
+        "Journal of the Asia-pacific Centre for Environmental Accountability":
+            "Journal of the Asia-Pacific Centre for Environmental Accountability"}
+    export.ANU_JOURNAL_RENAMES.clear()
+
+
+def test_openalex_link_becomes_the_doi_link():
+    rows = [{"name": "Sarah Adams", "doi": "10.1/a", "link": "https://openalex.org/W3159524443"},
+            {"name": "Sarah Adams", "doi": "10.1/b", "link": "https://papers.ssrn.com/x"},
+            {"name": "Sarah Adams", "doi": None, "link": "https://openalex.org/W1"},
+            {"name": "Someone Else", "doi": "10.1/c", "link": "https://openalex.org/W2"}]
+    export._anu_doi_links(rows, V293)
+    assert [r["link"] for r in rows] == ["https://doi.org/10.1/a", "https://papers.ssrn.com/x",
+                                         "https://openalex.org/W1", "https://openalex.org/W2"]
+
+
+def test_unicode_hyphens_become_plain_hyphens_but_dashes_stay():
+    row = {"name": "Xiu-Ye Zhang", "title": "Non‐financial – a non‑breaking case — end",
+           "authors": "Xiu‐Ye Zhang; Wai‐Man Liu", "journal_name": "Asia‐Pacific Review"}
+    export._anu_plain_hyphens([row], V293)
+    assert row == {"name": "Xiu-Ye Zhang", "title": "Non-financial – a non-breaking case — end",
+                   "authors": "Xiu-Ye Zhang; Wai-Man Liu", "journal_name": "Asia-Pacific Review"}
+    other = {"name": "Someone Else", "title": "Non‐financial", "authors": "A‐B", "journal_name": "J"}
+    before = copy.deepcopy(other)
+    export._anu_plain_hyphens([other], V293)
+    assert other == before
+
+
+def test_json_writer_turns_only_nan_and_infinity_into_null(tmp_path):
+    import json
+    import math
+    rows = [{"journal_name": "Advances in Management Accounting", "sjr": float("nan"),
+             "h_index": 12, "impact_factor": 1.25, "jcr_year": None, "issn": "1474-7871",
+             "ranks": [1.0, float("inf"), "A"], "nested": {"x": -float("inf"), "y": 0.0}}]
+    export.write({"journals": rows}, out_dir=tmp_path / "zz", verbose=False)
+    text = (tmp_path / "zz" / "zz_journals.json").read_text(encoding="utf-8")
+
+    def refuse(constant):
+        raise ValueError(constant)
+    out = json.loads(text, parse_constant=refuse)
+    assert out == [{"journal_name": "Advances in Management Accounting", "sjr": None,
+                    "h_index": 12, "impact_factor": 1.25, "jcr_year": None, "issn": "1474-7871",
+                    "ranks": [1.0, None, "A"], "nested": {"x": None, "y": 0.0}}]
+    assert math.isnan(rows[0]["sjr"])                       # the caller's data is not changed

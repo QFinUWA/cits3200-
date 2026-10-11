@@ -88,9 +88,13 @@ def test_author_count_equals_names_shown(pubs):
 
 
 def test_every_row_names_its_owner_or_has_a_doi_author_list(pubs):
-    """A DOI-less profile row always lists the profile owner (task E)."""
+    """A DOI-less profile row always lists the profile owner (task E), unless
+    its author list is a cited record's byline (data/anu_paper_records.csv,
+    v29.3 task 5: the eJTR byline names Steven Wu as "Hai Wu")."""
+    cited = {(c["title"], c["authors"]) for c in export.anu_paper_records().values()}
     missing = [(r["name"], r["title"][:50]) for r in pubs
-               if not r["doi"] and r["source"] == "ANU staff profile" and r["name"] not in r["authors"]]
+               if not r["doi"] and r["source"] == "ANU staff profile" and r["name"] not in r["authors"]
+               and (r["title"], r["authors"]) not in cited]
     assert not missing, missing
 
 
@@ -229,5 +233,173 @@ def test_known_forthcoming_rows(pubs):
     assert {r["publication_status"] for r in liu + walpola} == {"forthcoming"}
 
 
+# v29.4: the 8 DOI rows whose Crossref record is not yet in an issue (no
+# volume, issue, page or print date; 2025 on) and Walpola's labelled DOI-less row.
+FORTHCOMING = {
+    ("Eunice Khoo", "10.1177/0148558x261483805"),
+    ("Xin (Kelly) Liu", "10.1287/mnsc.2024.08157"),
+    ("Kun Li", "10.1287/mnsc.2024.08157"),
+    ("Scarlett Luo", "10.1111/abac.70030"),
+    ("Kathy Wang", "10.1007/s10551-026-06299-4"),
+    ("Xiu-Ye Zhang", "10.1142/s1094406026500022"),
+    ("Xiu-Ye Zhang", "10.1111/eufm.70096"),
+    ("Isabel Wang", "10.1007/s10551-026-06277-w"),
+    ("Sonali Walpola", ""),
+}
+
+
+def test_forthcoming_is_exactly_the_nine_rows(pubs):
+    got = {(r["name"], r["doi"]) for r in pubs if r["publication_status"] == "forthcoming"}
+    assert got == FORTHCOMING
+    assert len([r for r in pubs if r["publication_status"] == "forthcoming"]) == 9
+
+
+def test_doi_status_follows_the_cached_crossref_record(pubs):
+    """Task A, from the HTTP cache only (skipped where there is none)."""
+    from core.config import CACHE_DIR, CROSSREF_BASE
+    if not CACHE_DIR.exists():
+        pytest.skip("no HTTP cache on this machine")
+    bad = []
+    for r in pubs:
+        if not r["doi"]:
+            continue
+        record = (_cached(f"{CROSSREF_BASE}/{r['doi']}") or {}).get("message")
+        if record is None:
+            continue
+        want = ("forthcoming" if int(r["year"]) >= export.ANU_FORTHCOMING_FROM_YEAR
+                and export._not_yet_in_an_issue(record) else "published")
+        if r["publication_status"] != want:
+            bad.append((r["name"], r["doi"], r["publication_status"], want))
+    assert not bad, bad
+
+
 def test_status_vocabulary(pubs):
     assert {r["publication_status"] for r in pubs} <= {"published", "forthcoming"}
+
+
+# ------------------------------------------------------------ v29 checks
+
+def _author_names(row):
+    return [n.strip() for n in (row["authors"] or "").split(";") if n.strip()]
+
+
+def test_no_author_list_repeats_a_name(pubs):
+    bad = [(r["name"], r["doi"] or r["title"][:50]) for r in pubs
+           if len(_author_names(r)) != len(set(_author_names(r)))]
+    assert not bad, bad
+
+
+def test_no_author_name_is_all_upper_case(pubs):
+    bad = [(r["name"], r["doi"] or r["title"][:50], n) for r in pubs
+           for n in _author_names(r) if export._all_caps_name(n)]
+    assert not bad, bad
+
+
+def test_every_link_is_empty_or_a_plain_http_url(pubs):
+    bad = [(r["name"], r["link"][:80]) for r in pubs
+           if r["link"] and not export._is_usable_link(r["link"])]
+    assert not bad, bad
+
+
+# ------------------------------------------------------------ v29.2 checks
+
+def test_jbe_editors_commentary_is_excluded(pubs):
+    assert not [r for r in pubs if r["doi"] == "10.1007/s10551-022-05242-7"]
+
+
+# Product or brand names that genuinely run a lower-case letter into a
+# capital ("eBay"). None in ANU titles on 6 Oct 2026; add one only with a reason.
+GLUED_WORD_ALLOWED = set()
+
+
+def test_no_title_has_a_word_glued_to_the_next(pubs):
+    """'Equity-ImpliedProbabilities': a space lost in the registered title."""
+    bad = [(r["name"], r["doi"], w) for r in pubs
+           for w in re.findall(r"\b\w*[a-z][A-Z][a-z]\w*", r["title"])
+           if w not in GLUED_WORD_ALLOWED]
+    assert not bad, bad
+
+
+def test_no_title_ends_with_a_full_stop(pubs):
+    bad = [(r["name"], r["doi"] or r["title"][:50]) for r in pubs if r["title"].rstrip().endswith(".")]
+    assert not bad, bad
+
+
+# ------------------------------------------------------------ v29.3 checks
+
+def _cached(url):
+    """The HTTP cache's stored response for `url`, else None (no network)."""
+    from core.config import CACHE_DIR
+    from core.http import _key
+    path = CACHE_DIR / f"{_key(url, None)}.json"
+    if not path.exists():
+        return None
+    with path.open(encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_every_doi_is_known_to_crossref_or_doi_org(pubs):
+    """Task 1, from the HTTP cache only. A DOI passes with a cached Crossref
+    record or a cached doi.org handle record; doi.org's 404s are never
+    cached, so a removed DOI can only fail here."""
+    from core.config import CACHE_DIR, CROSSREF_BASE
+    if not CACHE_DIR.exists():
+        pytest.skip("no HTTP cache on this machine")
+    unknown = [(r["name"], r["doi"]) for r in pubs if r["doi"]
+               and not ((_cached(f"{CROSSREF_BASE}/{r['doi']}") or {}).get("message")
+                        or (_cached(f"https://doi.org/api/handles/{r['doi']}") or {}).get("responseCode") == 1)]
+    assert not unknown, unknown
+
+
+def test_dead_dois_are_gone(pubs):
+    dead = {"10.3316/agispt.20211028055941", "10.3316/informit.446762770484313"}
+    assert not [r for r in pubs if r["doi"] in dead or any(d in r[c] for d in dead
+                                                          for c in ("link", "article_url"))]
+
+
+def _refuse(constant):
+    raise ValueError(f"not valid JSON: {constant}")
+
+
+@pytest.mark.parametrize("path", sorted(OUT.glob("*.json")), ids=lambda p: p.name)
+def test_every_json_file_parses_strictly(path):
+    """Task 2: NaN/Infinity are not JSON; JavaScript's JSON.parse rejects them."""
+    json.loads(path.read_text(encoding="utf-8"), parse_constant=_refuse)
+
+
+def test_no_url_column_contains_a_space(pubs):
+    bad = [(r["name"], c, r[c]) for r in pubs for c in ("link", "oa_url", "article_url") if " " in r[c]]
+    assert not bad, bad
+
+
+def test_same_doi_less_paper_has_one_rendering(pubs):
+    """Task 5: DOI-less rows of different researchers, same journal, year and
+    title (no leading "The", case or punctuation) show one title and author list."""
+    groups = defaultdict(list)
+    for r in pubs:
+        if not r["doi"]:
+            groups[export._paper_key(r["journal_name"], r["year"], r["title"])].append(r)
+    bad = [[(r["name"], r["title"], r["authors"]) for r in g] for g in groups.values()
+           if len({r["name"] for r in g}) > 1
+           and len({(r["title"], r["authors"], r["author_count"]) for r in g}) > 1]
+    assert not bad, bad
+
+
+def test_no_openalex_link_when_a_doi_exists(pubs):
+    bad = [(r["name"], r["doi"], r["link"]) for r in pubs if r["doi"] and "openalex.org" in r["link"]]
+    assert not bad, bad
+
+
+def test_no_unicode_hyphens_in_titles_authors_or_journals(pubs):
+    bad = [(r["name"], c, r[c][:60]) for r in pubs for c in ("title", "authors", "journal_name")
+           if "‐" in r[c] or "‑" in r[c]]
+    assert not bad, bad
+
+
+def test_apcea_journal_name_is_capitalised(pubs):
+    names = {r["journal_name"] for r in pubs}
+    assert "Journal of the Asia-pacific Centre for Environmental Accountability" not in names
+    assert "Journal of the Asia-Pacific Centre for Environmental Accountability" in names
+    with (OUT / "anu_journals.csv").open(encoding="utf-8") as f:
+        journals = {r["journal_name"] for r in csv.DictReader(f)}
+    assert names <= journals, names - journals

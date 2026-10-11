@@ -28,6 +28,8 @@
   --ok:          #15803d;
   --warn:        #b45309;
   --warn-bg:     #fef3c7;
+  --danger:      #991b1b;
+  --danger-bg:   #fee2e2;
 
   /* ABDC rating colours — used consistently everywhere a rating appears */
   --abdc-astar:  #7c3aed;
@@ -302,7 +304,7 @@ main { padding: 30px 0 60px; }
   font-size: .78rem; font-weight: 600; color: var(--ink-muted);
   text-transform: uppercase; letter-spacing: .04em;
 }
-select, input[type="text"], input[type="search"] {
+select, input[type="text"], input[type="search"], input[type="password"] {
   font: inherit;
   font-size: .9rem;
   padding: 7px 10px;
@@ -576,6 +578,21 @@ table.university-ranking-table tbody td:nth-child(2) a {
 }
 
 /* ---------- Admin ----------------------------------------------------- */
+/* Sign-in page: one narrow card, centred under the shared header. */
+.login-wrap { max-width: 400px; margin: 48px auto 0; padding: 0 var(--gutter); }
+.login-card { padding: 28px 28px 26px; }
+.login-card h1 { font-size: 1.4rem; margin-bottom: .3rem; }
+.login-lead { color: var(--ink-muted); font-size: .92rem; margin-bottom: 1.3rem; }
+.login-card input[type="password"],
+.login-card input[type="text"] { width: 100%; padding: 9px 11px; font-size: .95rem; }
+.login-show { margin: .75rem 0 1.2rem; color: var(--ink-muted); }
+.login-card .btn { width: 100%; padding: 10px 18px; font-size: .95rem; }
+.login-error {
+  background: var(--danger-bg); color: var(--danger);
+  border-radius: 6px; padding: 9px 12px; margin-bottom: 1.1rem; font-size: .9rem;
+}
+.login-back { margin-top: 1rem; text-align: center; }
+
 .admin-wrap { max-width: 880px; margin: 2rem auto; padding: 0 1rem; }
 .admin-logout { margin-top: -.5rem; }
 .admin-step {

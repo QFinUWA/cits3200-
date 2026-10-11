@@ -125,6 +125,37 @@ def test_repository_repair_leaves_non_anu_row_untouched():
     assert row == before
 
 
+# v29: core/schema.clean_journal now blanks the repository name before export.
+def _openalex_primary(source_name, citation=_CITATION):
+    return lambda doi: {"primary_location": {"raw_source_name": citation,
+                                             "source": {"display_name": source_name}},
+                        "locations": []}
+
+
+def test_blank_journal_with_repository_primary_location_is_repaired():
+    row = dict(_adams_row(), journal=None)
+    fetch = _openalex_primary("UWA Profiles and Research Repository (UWA)")
+    assert export._anu_repository_journal_repair(row, ANU, fetch=fetch) == "Third Sector Review"
+    assert row["journal"] == "Third Sector Review" and row["abdc"] == "C"
+
+
+def test_blank_journal_repair_leaves_non_anu_row_untouched():
+    row = dict(_adams_row(name="Someone Else"), journal=None)
+    before = copy.deepcopy(row)
+    fetch = _openalex_primary("UWA Profiles and Research Repository (UWA)")
+    assert export._anu_repository_journal_repair(row, ANU, fetch=fetch) is None
+    assert row == before
+
+
+def test_blank_journal_without_repository_primary_location_is_not_repaired():
+    row = dict(_adams_row(), journal=None)
+    before = copy.deepcopy(row)
+    assert export._anu_repository_journal_repair(
+        row, ANU, fetch=_openalex_primary("Third Sector Review")) is None
+    assert export._anu_repository_journal_repair(row, ANU, fetch=_openalex()) is None
+    assert row == before
+
+
 # ---------------------------------------------------- Task E: title text guards
 
 def test_mojibake_is_repaired_only_when_exact():

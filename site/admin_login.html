@@ -1,38 +1,74 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Admin login</title>
-  <link rel="stylesheet" href="assets/style.css">
-  <style>
-    .login-wrap { max-width: 360px; margin: 4rem auto; padding: 0 1rem; }
-    .login-card { padding: 1.5rem; border: 1px solid #ddd; border-radius: 8px; }
-    .login-card h1 { font-size: 1.25rem; margin-top: 0; }
-    .login-card label { display: block; font-size: 0.9rem; margin-bottom: 0.35rem; }
-    .login-card input[type=password] {
-      width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 6px;
-      box-sizing: border-box; margin-bottom: 0.9rem; }
-    .err { color: #b00020; font-size: 0.9rem; margin-bottom: 0.9rem; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin sign in — G8 Research Output Database</title>
+<!-- Absolute paths: this page is served at /admin/login, where a relative
+     "assets/style.css" resolves to /admin/assets/style.css and 404s. -->
+<link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
+
+<!-- ==== SHARED HEADER (absolute links, see note above) ==== -->
+<header class="site-header">
+  <div class="wrap-wide">
+    <a class="brand" href="/">G8 Research Output Database</a>
+    <nav class="nav">
+      <a href="/">Home</a>
+      <a href="/researchers.html">Researchers</a>
+      <a href="/universities.html">Universities</a>
+      <a href="/documentation.html">Documentation</a>
+      <a href="/admin" aria-current="page">Admin</a>
+    </nav>
+  </div>
+</header>
+<!-- ==== /SHARED HEADER ==== -->
+
+<main>
   <div class="login-wrap">
-    <div class="login-card">
-      <h1>Admin login</h1>
-      <div id="err" class="err" hidden>Incorrect password. Try again.</div>
+    <div class="card login-card">
+      <h1>Admin sign in</h1>
+      <p class="login-lead">Sign in to edit the data or refresh it from the sources.</p>
+
+      <div id="err" class="login-error" role="alert" hidden>
+        Incorrect password. Please try again.
+      </div>
+
       <form method="POST" action="/admin/login">
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" autofocus required>
-        <button class="btn" type="submit">Log in</button>
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password"
+                 autocomplete="current-password" autofocus required>
+        </div>
+        <label class="check login-show">
+          <input type="checkbox" id="show"> Show password
+        </label>
+        <button class="btn" type="submit">Sign in</button>
       </form>
     </div>
-    <p class="small" style="margin-top:1rem;"><a href="/">&larr; Back to site</a></p>
+    <p class="login-back small"><a href="/">&larr; Back to site</a></p>
   </div>
-  <script>
-    if (new URLSearchParams(location.search).get("error")) {
-      document.getElementById("err").hidden = false;
-    }
-  </script>
+</main>
+
+<!-- ==== SHARED FOOTER ==== -->
+<footer class="site-footer">
+  <div class="wrap-wide">
+    <div>CITS3200 Team 20 &middot; Client: Yuanji Wen, UWA Business School</div>
+    <div>Journal rankings: ABDC 2025, Scimago, Clarivate JCR</div>
+  </div>
+</footer>
+<!-- ==== /SHARED FOOTER ==== -->
+
+<script>
+  const password = document.getElementById("password");
+  if (new URLSearchParams(location.search).get("error")) {
+    document.getElementById("err").hidden = false;
+    password.setAttribute("aria-describedby", "err");
+  }
+  document.getElementById("show").addEventListener("change", (e) => {
+    password.type = e.target.checked ? "text" : "password";
+  });
+</script>
 </body>
 </html>
