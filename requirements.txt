@@ -17,9 +17,14 @@ Flask>=3.0,<4
  
 python-dotenv>=1.0,<2
 
-# --- browser, for the two directories that render their staff list in JS ---
-# Only base_scrapers/unsw.py needs these, and only when its roster cache is cold.
-# The imports are inside the function so a run against a warm cache does not
-# need them installed at all.
+# --- browser, for the two staff directories that need a real browser ---
+# base_scrapers/monash.py imports these at the top of the file, so every Monash
+# run needs them. base_scrapers/unsw.py imports them inside the function that
+# loads its staff list, so UNSW needs them only when cache/unsw_roster.json is
+# missing or --refresh is given. Chrome itself is installed separately.
+#
+# Not listed here, and installed separately when needed: pytest and playwright
+# for the tests (docs/DEVELOPER_GUIDE.md), gunicorn for hosting
+# (docs/INSTALLATION.md).
 selenium>=4.20,<5
 webdriver-manager>=4.0,<5

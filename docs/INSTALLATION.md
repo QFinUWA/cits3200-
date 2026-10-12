@@ -84,14 +84,14 @@ Check the home page, Researchers, Universities and Documentation. Download a CSV
 
 ## 5. Enable fresh collection
 
-Before running `run.py` or the administrator refresh, obtain these reference inputs and place them at the configured paths:
+`run.py` and the administrator refresh read these reference inputs at the configured paths:
 
 | Path | Required format |
 |---|---|
 | `data/ABDC-JQL-2025-v1-260326.xlsx` | Workbook containing sheet `2025 JQL`; configuration uses `header=7` and column `2025 rating` |
 | `data/scimagojr 2025.csv` | SCImago reference export expected by `enrichment/scimago.py` |
 
-These reference files are acquired separately and are excluded by the repository's ignore rules. Use the authorised project copies or obtain the matching editions from their providers. If using a new edition, update `core/config.py` and verify its columns before running enrichment.
+Both files are tracked in the repository, so a clone and the handover source ZIP already contain them; there is nothing to obtain for the 2025 editions. To move to a newer edition, get it from its provider, place it in `data/`, update the file name and settings in `core/config.py`, and verify its columns before running enrichment.
 
 Some university collection uses Selenium and Chrome/Chromium. Install a compatible browser and its operating-system dependencies on the collection host. `selenium` and `webdriver-manager` are in `requirements.txt`; installing these Python packages alone does not install a working browser. Driver download and provider access must work on that host.
 
@@ -104,6 +104,27 @@ python run.py --uni usyd --skip-clarivate
 This uses cached responses where available. Add `--refresh` for a fresh collection. Omit `--skip-clarivate` only when a working, authorised Clarivate key is configured. See [Developer guide](DEVELOPER_GUIDE.md) for validation and all-university commands.
 
 The administrator refresh automatically skips Clarivate when its key is empty or a recognised placeholder. It still needs the other reference files and collection dependencies.
+
+### University sites that block automated requests
+
+Four of the eight universities put a bot check in front of the pages the pipeline reads. A check lets some requests through and refuses others, so the same collection can succeed one day and fail the next. It tends to be stricter for requests from cloud or data-centre addresses than from a home or office connection.
+
+| University | What is protected | What the pipeline does |
+|---|---|---|
+| Melbourne | The Faculty of Business and Economics staff list (Cloudflare) | Without `--refresh`, falls back to the last saved copy and prints a warning. With `--refresh`, the run fails rather than pass off an old copy as fresh |
+| Western Australia | The research repository (Cloudflare) | The same as Melbourne |
+| Monash | The staff directory accepts only a real browser; the research portal refuses requests that arrive too fast | Loads the directory in Chrome through Selenium; retries the portal and falls back to saved pages |
+| UNSW | The staff search behind the directory page (Cloudflare) | Loads the list in Chrome through Selenium and saves it to `cache/unsw_roster.json`; later runs reuse the saved list unless `--refresh` is given |
+
+Queensland, Sydney, ANU and Adelaide have not blocked collection.
+
+What this means in practice:
+
+- **The administrator refresh always collects with `--refresh` and stops at the first university that fails**, leaving the live database unchanged. On a hosted server a blocked Melbourne or Western Australia request is therefore enough to stop a refresh of all universities. Refresh those universities one at a time, or collect from the command line.
+- **From the command line, run without `--refresh` to accept saved copies** for a blocked university: `python run.py --uni unimelb --skip-clarivate`. The data is then only as recent as the last collection that got through.
+- **If a university is blocked, try again later or from a different network.** Do not try to defeat the check.
+- **The website does not collect anything while serving pages.** Browsing, downloads and Excel editing are unaffected, so a server can host the site while collection is done on another machine and the resulting `final output/` is loaded with `load.py`.
+- Western Australia's repository offers an API to authorised users; requesting a key from the university is the dependable long-term route for that source.
 
 ## 6. Host the application
 
@@ -144,7 +165,7 @@ Administrator refresh creates its own database backup in `backups/`; administrat
 | Port 5000 is busy | Stop the older server, or select `--port 5001` and open/forward that port |
 | Admin login does not work | Check `ADMIN_PASSWORD` in `.env` and restart the application |
 | Reference file not found | Check the exact names and editions in section 5 |
-| Refresh stops | Read the job status and `logs/refresh/<job_id>.log`; correct the cause before rerunning |
+| Refresh stops | Read the job status and `logs/refresh/<job_id>.log`; correct the cause before rerunning. If the log shows a verification page or HTTP 403 for Melbourne, Western Australia, Monash or UNSW, see "University sites that block automated requests" in section 5 |
 | `UnicodeEncodeError: 'charmap' codec can't encode character ...` on Windows | Run `$env:PYTHONIOENCODING = "utf-8"` in that PowerShell window, then repeat the command. The administrator refresh sets this itself |
 
 ## Technical references

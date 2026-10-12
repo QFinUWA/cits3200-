@@ -1,5 +1,13 @@
 # Group 20 — Mohammad/Saeed USyd Sprint 2 contribution
 
+> **Historical note (October 2026).** This describes how the USyd collector was
+> first added in Sprint 2, as a standalone script. USyd now runs through the
+> main pipeline (`python run.py --uni usyd`, adapter `base_scrapers/usyd.py`)
+> and uses the main `requirements.txt`. The separate `requirements-usyd.txt`
+> has been removed, and the old root `usyd_publications.csv` is in
+> `legacy_csvs/`. For current instructions see `docs/INSTALLATION.md` and
+> `docs/DEVELOPER_GUIDE.md`.
+
 ## Purpose
 
 This is a **starting implementation** for the current Sprint 2 plan:
@@ -45,14 +53,14 @@ Copy this contribution into the repo (recommended paths):
 ```text
 scripts/usyd_collect.py
 tests/test_usyd_collect.py
-requirements-usyd.txt
 README_USYD.md
 ```
 
 Install:
 
 ```bash
-python -m pip install -r requirements-usyd.txt
+python -m pip install -r requirements.txt
+python -m pip install pytest playwright
 python -m playwright install --with-deps chromium
 pytest -q tests/test_usyd_collect.py
 ```
@@ -110,7 +118,7 @@ cp output/usyd/usyd_publications.csv ./usyd_publications.csv
 ## Commit
 
 ```bash
-git add scripts/usyd_collect.py tests/test_usyd_collect.py requirements-usyd.txt README_USYD.md usyd_publications.csv
+git add scripts/usyd_collect.py tests/test_usyd_collect.py README_USYD.md usyd_publications.csv
 git status
 git diff --cached --stat
 git commit -m "feat: add USyd OpenAlex publication pipeline"
