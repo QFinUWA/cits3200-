@@ -52,10 +52,7 @@
       <div class="admin-action-block">
         <h3>3. Upload edited sheet</h3>
         <input type="file" id="file" accept=".xlsx">
-        <label class="admin-check-row">
-          <input type="checkbox" id="dry" checked>
-          Preview only (dry run) — don't change the database yet
-        </label>
+        <p class="admin-check-row muted">Uploading saves the changes to the live database straight away.</p>
         <button class="btn" id="btn-upload" type="button">Upload</button>
         <div class="admin-result" id="result" hidden></div>
       </div>
@@ -129,20 +126,19 @@
     uploadBtn.addEventListener("click", async () => {
       const f = el("file").files[0];
       if (!f) { showUpload("Choose a file first."); return; }
-      const dry = el("dry").checked;
 
       const fd = new FormData();
       fd.append("file", f);
       showUpload("Working…");
       uploadBtn.disabled = true;
       try {
-        const res = await fetch(`/api/admin/${dataset()}?dry_run=${dry ? "1" : "0"}`,
+        const res = await fetch(`/api/admin/${dataset()}`,
                                 { method: "POST", body: fd });
         if (await handleExpired(res, showUpload)) return;
         const data = await res.json();
         if (data.error) { showUpload("Error: " + data.error); return; }
 
-        let msg = (data.dry_run ? "PREVIEW (nothing saved)\n" : "SAVED TO DATABASE\n")
+        let msg = (data.errors.length ? "UPLOAD HAS ERRORS\n" : "SAVED TO DATABASE\n")
           + `inserted: ${data.inserted}\nupdated:  ${data.updated}\nskipped:  ${data.skipped}\n`
           + `errors:   ${data.errors.length}`;
         if (data.cascaded_pubs) msg += `\npublications updated from journal changes: ${data.cascaded_pubs}`;

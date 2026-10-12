@@ -61,6 +61,14 @@ Generated CSV edits alone are not persistent. Administrative database edits like
 
 ## Test a change
 
+On Windows, switch Python's output to UTF-8 in the terminal before running tests or pipeline scripts. Several scripts print characters the default Windows console encoding cannot represent, and they stop with `UnicodeEncodeError: 'charmap' codec can't encode character ...`. Without this setting, six tests in `tests/test_merge_publications.py` fail for that reason alone. The setting lasts for that terminal session:
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+```
+
+Linux, macOS and Codespaces terminals already use UTF-8 and need no change.
+
 Install testing dependencies separately:
 
 ```bash
@@ -105,16 +113,15 @@ Implement `base_scrapers/<code>.py` with a `collect(...)` function returning `(r
 | `GET /api/researchers/<id>/publications` | Their publication records |
 | `GET /downloads/<entity>.csv` | Public full export: `publications`, `researchers`, `journals` |
 | `GET /api/admin/<entity>.xlsx` | Authenticated Excel download |
-| `POST /api/admin/<entity>?dry_run=1` | Authenticated upload preview; multipart field `file` |
-| `POST /api/admin/<entity>?dry_run=0` | Authenticated committed upload |
+| `POST /api/admin/<entity>` | Authenticated upload, saved immediately; multipart field `file` |
 | `GET /api/admin/refresh/status` | Authenticated current refresh status |
 | `POST /api/admin/refresh` | Authenticated refresh; JSON `{"source":"usyd"}` or `{}` for all |
 
-The API's university filter uses the stored university name, not the CLI adapter code. Spreadsheet uploads update existing IDs or insert blank-ID rows. The server rolls back the transaction if a row reports an error or if dry-run mode is enabled. Journal-owned `quality_rank` and `sjr_quartile` propagate to associated publications. Deleting a spreadsheet row is not a database deletion operation.
+The API's university filter uses the stored university name, not the CLI adapter code. Spreadsheet uploads update existing IDs or insert blank-ID rows and are saved immediately; the admin page has no preview step. An upload is all-or-nothing: `admin.py` runs every row in one transaction and commits only if no row reports an error, so a sheet with one bad row changes nothing. It deliberately avoids a `SAVEPOINT` per row, because Python's `sqlite3` driver commits each savepoint as it is released. `admin.py` still accepts a `dry_run=1` query parameter that checks a sheet and saves nothing; the page no longer sends it. Journal-owned `quality_rank` and `sjr_quartile` propagate to associated publications. Deleting a spreadsheet row is not a database deletion operation.
 
 ## Refresh and runtime logs
 
-The admin refresh uses `run.py --refresh`, writes `logs/refresh/<job_id>.log`, and saves the previous database as `backups/research-<job_id>.db`. After successful selected-source runs, it loads a staging database and replaces the live file. It stops on the first source failure; already generated CSVs may have changed even when the live database is retained.
+The admin refresh uses `run.py --refresh`, writes `logs/refresh/<job_id>.log`, and saves the previous database as `backups/research-<job_id>.db`. After successful selected-source runs, it loads a staging database and replaces the live file. It stops on the first source failure; already generated CSVs may have changed even when the live database is retained. The usual cause of a source failing is a university's bot check: Melbourne, Western Australia, Monash and UNSW refuse automated requests some of the time. See "University sites that block automated requests" in the [Installation guide](INSTALLATION.md) for what each adapter does and how to collect around it.
 
 The lock and status are held in one process, and the job uses a background thread. Deploy one web worker until job coordination is moved to shared durable storage. Finish a refresh before restarting the service. For a problem, collect its job ID, source, exit status and relevant log section; remove credentials if a provider response contains them.
 

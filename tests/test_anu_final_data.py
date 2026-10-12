@@ -233,8 +233,11 @@ def test_known_forthcoming_rows(pubs):
     assert {r["publication_status"] for r in liu + walpola} == {"forthcoming"}
 
 
-# v29.4: the 8 DOI rows whose Crossref record is not yet in an issue (no
+# v29.4: the DOI rows whose Crossref record is not yet in an issue (no
 # volume, issue, page or print date; 2025 on) and Walpola's labelled DOI-less row.
+# There were 8 DOI rows; 7 since 12 October, when Isabel Wang's JBE paper
+# (10.1007/s10551-026-06277-w) was placed in volume 208(2) and became published.
+# This list shrinks each time one of these papers is assigned to an issue.
 FORTHCOMING = {
     ("Eunice Khoo", "10.1177/0148558x261483805"),
     ("Xin (Kelly) Liu", "10.1287/mnsc.2024.08157"),
@@ -243,15 +246,14 @@ FORTHCOMING = {
     ("Kathy Wang", "10.1007/s10551-026-06299-4"),
     ("Xiu-Ye Zhang", "10.1142/s1094406026500022"),
     ("Xiu-Ye Zhang", "10.1111/eufm.70096"),
-    ("Isabel Wang", "10.1007/s10551-026-06277-w"),
     ("Sonali Walpola", ""),
 }
 
 
-def test_forthcoming_is_exactly_the_nine_rows(pubs):
+def test_forthcoming_is_exactly_the_eight_rows(pubs):
     got = {(r["name"], r["doi"]) for r in pubs if r["publication_status"] == "forthcoming"}
     assert got == FORTHCOMING
-    assert len([r for r in pubs if r["publication_status"] == "forthcoming"]) == 9
+    assert len([r for r in pubs if r["publication_status"] == "forthcoming"]) == 8
 
 
 def test_doi_status_follows_the_cached_crossref_record(pubs):

@@ -258,41 +258,48 @@ def upsert_from_dataframe(session_, entity, df, *, dry_run=False):
     summary = {"inserted": 0, "updated": 0, "skipped": 0,
                "cascaded_pubs": 0, "errors": []}
 
+    # One ordinary transaction for the whole upload, committed only if every
+    # row succeeds. Rows used to be wrapped in a SAVEPOINT each, which Python's
+    # sqlite3 driver commits as it is released (it opens no transaction before
+    # SAVEPOINT), so rows before a failing row stayed saved and a dry run saved
+    # everything. A single transaction behaves the same on any database.
     for i, raw in enumerate(df.to_dict(orient="records"), start=2):  # row 2 = first data row
         try:
-            with session_.begin_nested():
-                pk = _as_int(raw.get(key))
-                values = {c: _coerce(cfg, c, raw.get(c))
-                          for c in cfg["editable"] if c in raw}
+            pk = _as_int(raw.get(key))
+            values = {c: _coerce(cfg, c, raw.get(c))
+                      for c in cfg["editable"] if c in raw}
 
-                if pk is not None:
-                    obj = session_.get(model, pk)
-                    if obj is None:
-                        raise ValueError(f"{key} {pk} not found")
-                    changed = {c: v for c, v in values.items()
-                               if getattr(obj, c) != v}
-                    if not changed:
-                        summary["skipped"] += 1
-                        continue
-                    for c, v in changed.items():
-                        setattr(obj, c, v)
-                    summary["updated"] += 1
-                else:
-                    obj = _insert(session_, entity, values)
-                    summary["inserted"] += 1
-                    changed = values
+            if pk is not None:
+                obj = session_.get(model, pk)
+                if obj is None:
+                    raise ValueError(f"{key} {pk} not found")
+                changed = {c: v for c, v in values.items()
+                           if getattr(obj, c) != v}
+                if not changed:
+                    summary["skipped"] += 1
+                    continue
+                for c, v in changed.items():
+                    setattr(obj, c, v)
+                summary["updated"] += 1
+            else:
+                obj = _insert(session_, entity, values)
+                summary["inserted"] += 1
+                changed = values
 
-                # propagation
-                session_.flush()
-                if entity == "publications":
-                    _sync_pub_from_journal(session_, obj)
-                elif entity == "journals" and any(c in changed for c in JOURNAL_CASCADE):
-                    _cascade_journal_to_pubs(session_, obj)
-                    n = session_.query(Publication).filter(
-                        Publication.journal_id == obj.journal_id).count()
-                    summary["cascaded_pubs"] += n
+            # propagation
+            session_.flush()
+            if entity == "publications":
+                _sync_pub_from_journal(session_, obj)
+            elif entity == "journals" and any(c in changed for c in JOURNAL_CASCADE):
+                _cascade_journal_to_pubs(session_, obj)
+                n = session_.query(Publication).filter(
+                    Publication.journal_id == obj.journal_id).count()
+                summary["cascaded_pubs"] += n
         except Exception as e:                                # noqa: BLE001
             summary["errors"].append({"row": i, "error": str(e)})
+            # Leave the session usable for checking the remaining rows. Nothing
+            # is lost: an upload with any error is rolled back in full below.
+            session_.rollback()
 
     if summary["errors"] or dry_run:
         session_.rollback()      # dry run, or all-or-nothing on any error
