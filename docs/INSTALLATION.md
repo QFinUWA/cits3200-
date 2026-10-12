@@ -145,6 +145,7 @@ Administrator refresh creates its own database backup in `backups/`; administrat
 | Admin login does not work | Check `ADMIN_PASSWORD` in `.env` and restart the application |
 | Reference file not found | Check the exact names and editions in section 5 |
 | Refresh stops | Read the job status and `logs/refresh/<job_id>.log`; correct the cause before rerunning |
+| `UnicodeEncodeError: 'charmap' codec can't encode character ...` on Windows | Run `$env:PYTHONIOENCODING = "utf-8"` in that PowerShell window, then repeat the command. The administrator refresh sets this itself |
 
 ## Technical references
 

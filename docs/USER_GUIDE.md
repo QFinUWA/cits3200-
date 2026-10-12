@@ -47,12 +47,11 @@ Open `/admin/login` and enter the password supplied by the maintainer. The **Dat
 
 1. Ask the maintainer to preserve a database backup and confirm that no refresh or rebuild is in progress.
 2. Under **Edit data**, choose **Publications**, **Journals** or **Staff (researchers)**.
-3. Select **Download Excel** and keep an unchanged copy of that workbook.
+3. Select **Download Excel** and keep an unchanged copy of that workbook; it is your record of the values before the edit.
 4. Edit the required fields. Keep column names and existing ID values intact.
-5. Choose the edited `.xlsx` file. Leave **Preview only (dry run)** selected and press **Upload**.
-6. Review the inserted, updated and skipped counts and any row errors. A preview saves nothing. If the server reports row errors, correct them and preview again.
-7. When the preview is correct, clear **Preview only (dry run)** and upload again.
-8. Check the affected website records and download a new workbook to confirm the saved values.
+5. Choose the edited `.xlsx` file and press **Upload**. There is no preview step: uploading saves the changes to the live database straight away.
+6. Review the inserted, updated and skipped counts and any row errors. If any row reports an error, nothing from that upload is saved: correct the listed rows in the workbook and upload it again.
+7. Check the affected website records and download a new workbook to confirm the saved values.
 
 Important editing rules:
 
@@ -63,13 +62,13 @@ Important editing rules:
 | Remove a row from the workbook | Does not delete it from the database |
 | Change grey context columns in Publications | Ignored; edit the linked Staff or Journals sheet instead |
 | Change journal `quality_rank` or `sjr_quartile` | Updates the copied values on linked publications |
-| Receive any row error | The upload is rolled back; review the error list |
+| Receive any row error | Nothing from that upload is saved. Correct the listed rows and upload the workbook again |
 
 Use a newly downloaded workbook after a database rebuild: numerical IDs can change. Do not reuse an old editing workbook against a new release.
 
 ### Add a record
 
-Leave the new row's own ID blank. A new researcher needs a name and university; a new journal needs a journal name. A new publication needs a title and an existing `researcher_id`; any supplied `journal_id` must refer to an existing journal. Add missing staff/journals first, download their allocated IDs, then add linked publications. Preview each upload before saving.
+Leave the new row's own ID blank. A new researcher needs a name and university; a new journal needs a journal name. A new publication needs a title and an existing `researcher_id`; any supplied `journal_id` must refer to an existing journal. Add missing staff/journals first, download their allocated IDs, then add linked publications. Check the result counts after each upload before making the next one.
 
 ### Keep corrections after refresh
 

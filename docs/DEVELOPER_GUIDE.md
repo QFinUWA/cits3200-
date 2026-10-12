@@ -61,6 +61,14 @@ Generated CSV edits alone are not persistent. Administrative database edits like
 
 ## Test a change
 
+On Windows, switch Python's output to UTF-8 in the terminal before running tests or pipeline scripts. Several scripts print characters the default Windows console encoding cannot represent, and they stop with `UnicodeEncodeError: 'charmap' codec can't encode character ...`. Without this setting, six tests in `tests/test_merge_publications.py` fail for that reason alone. The setting lasts for that terminal session:
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+```
+
+Linux, macOS and Codespaces terminals already use UTF-8 and need no change.
+
 Install testing dependencies separately:
 
 ```bash
@@ -105,12 +113,11 @@ Implement `base_scrapers/<code>.py` with a `collect(...)` function returning `(r
 | `GET /api/researchers/<id>/publications` | Their publication records |
 | `GET /downloads/<entity>.csv` | Public full export: `publications`, `researchers`, `journals` |
 | `GET /api/admin/<entity>.xlsx` | Authenticated Excel download |
-| `POST /api/admin/<entity>?dry_run=1` | Authenticated upload preview; multipart field `file` |
-| `POST /api/admin/<entity>?dry_run=0` | Authenticated committed upload |
+| `POST /api/admin/<entity>` | Authenticated upload, saved immediately; multipart field `file` |
 | `GET /api/admin/refresh/status` | Authenticated current refresh status |
 | `POST /api/admin/refresh` | Authenticated refresh; JSON `{"source":"usyd"}` or `{}` for all |
 
-The API's university filter uses the stored university name, not the CLI adapter code. Spreadsheet uploads update existing IDs or insert blank-ID rows. The server rolls back the transaction if a row reports an error or if dry-run mode is enabled. Journal-owned `quality_rank` and `sjr_quartile` propagate to associated publications. Deleting a spreadsheet row is not a database deletion operation.
+The API's university filter uses the stored university name, not the CLI adapter code. Spreadsheet uploads update existing IDs or insert blank-ID rows and are saved immediately; the admin page has no preview step. An upload is all-or-nothing: `admin.py` runs every row in one transaction and commits only if no row reports an error, so a sheet with one bad row changes nothing. It deliberately avoids a `SAVEPOINT` per row, because Python's `sqlite3` driver commits each savepoint as it is released. `admin.py` still accepts a `dry_run=1` query parameter that checks a sheet and saves nothing; the page no longer sends it. Journal-owned `quality_rank` and `sjr_quartile` propagate to associated publications. Deleting a spreadsheet row is not a database deletion operation.
 
 ## Refresh and runtime logs
 
