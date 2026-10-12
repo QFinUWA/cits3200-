@@ -121,7 +121,7 @@ The API's university filter uses the stored university name, not the CLI adapter
 
 ## Refresh and runtime logs
 
-The admin refresh uses `run.py --refresh`, writes `logs/refresh/<job_id>.log`, and saves the previous database as `backups/research-<job_id>.db`. After successful selected-source runs, it loads a staging database and replaces the live file. It stops on the first source failure; already generated CSVs may have changed even when the live database is retained.
+The admin refresh uses `run.py --refresh`, writes `logs/refresh/<job_id>.log`, and saves the previous database as `backups/research-<job_id>.db`. After successful selected-source runs, it loads a staging database and replaces the live file. It stops on the first source failure; already generated CSVs may have changed even when the live database is retained. The usual cause of a source failing is a university's bot check: Melbourne, Western Australia, Monash and UNSW refuse automated requests some of the time. See "University sites that block automated requests" in the [Installation guide](INSTALLATION.md) for what each adapter does and how to collect around it.
 
 The lock and status are held in one process, and the job uses a background thread. Deploy one web worker until job coordination is moved to shared durable storage. Finish a refresh before restarting the service. For a problem, collect its job ID, source, exit status and relevant log section; remove credentials if a provider response contains them.
 

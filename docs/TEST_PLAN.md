@@ -1,6 +1,6 @@
 # Test plan
 
-CITS3200 Group 20. Owner: Zarin. Last updated 29 September 2026.
+CITS3200 Group 20. Owner: Zarin. Status tables last updated 12 October 2026.
 
 This says what we test, how, and who signs it off, and it maps onto the four
 tests in `Project_Acceptance_Tests.docx`.
@@ -17,6 +17,10 @@ python -m pytest tests/test_site_browser.py -q      # the pages in a real browse
 python validate_data.py all                  # the deep report a person reads
 python app.py                                # then the manual checklist below
 ```
+
+On Windows, run `$env:PYTHONIOENCODING = "utf-8"` in the terminal first.
+Without it six tests in `tests/test_merge_publications.py` fail on an emoji
+the default console encoding cannot print (issue 3 below).
 
 The browser tests need `pip install playwright` and `playwright install
 chromium`; they skip themselves when it is not installed. The database tests
@@ -90,28 +94,41 @@ width. Do it before each client demo and record the result at the bottom.
 
 ## Mapping to the acceptance tests
 
-| Acceptance test | How it is tested | Status |
+| Acceptance test | How it is tested | Status on 12 October |
 |---|---|---|
-| A: all 8 universities scraped | `validate_data.py all`, `test_exported_data.py` | Passing |
-| B: academic levels mapped | `test_academic_levels_are_A_to_E`, `test_every_researcher_has_an_academic_level` | **Failing**: 32 researchers have no level (Adelaide 14, UniMelb 10, USyd 5, UQ 2, Monash 1) |
-| C: website works | `test_site_browser.py` plus the checklist above | **Failing**: 2 of 14 browser tests. A fast name search, and two dropdowns changed in succession, both leave the wrong rows on screen |
-| D: no duplicate publications | `test_no_duplicate_publications`, `test_a_doi_is_one_paper` | **Failing**: 1 duplicate (USyd, Peter Wolnizer, "Enabling accountability in museums", 1996) |
+| A: all 8 universities scraped | `validate_data.py all`, `test_exported_data.py` | `test_exported_data.py` passes for all eight. `validate_data.py all` reports one failure, on one Monash row (issue 2) |
+| B: academic levels mapped | `test_academic_levels_are_A_to_E`, `test_every_researcher_has_an_academic_level` | Passing: all 521 researchers have a level |
+| C: website works | `test_site_browser.py` plus the checklist above | The API tests pass. The browser tests were **not run** for this update because Playwright was not installed on the machine used (issue 4). The wrong-rows fault they caught on 29 September has since been fixed |
+| D: no duplicate publications | `test_no_duplicate_publications`, `test_a_doi_is_one_paper` | Passing |
 
 ## Known open issues
 
-Everything here is a currently failing test, not a guess.
+Measured on 12 October with `python -m pytest tests -q`: 1,006 passed, 1 failed,
+1 skipped (with the Windows setting above; 7 failed without it).
 
 | # | Issue | Owner |
 |---|---|---|
-| 1 | 32 researchers have no academic level: Adelaide 14, UniMelb 10, USyd 5, UQ 2, Monash 1 | those five |
-| 2 | UWA writes publication statuses outside the agreed set, such as "Accepted/In press - 18 Aug 2026", where the schema allows published, forthcoming, working_paper | UWA |
-| 3 | Adelaide has 1 publication with no year, ANU has 3 | Adelaide, ANU |
-| 4 | USyd lists "Enabling accountability in museums" (1996) twice for Peter Wolnizer | USyd |
-| 5 | Roger Simnett appears at both UNSW and Monash on the same ORCID, so he is counted twice in the merged table | UNSW and Monash |
-| 6 | Andrew Terry appears at both UNSW and USyd, and Lisa Powell at both Adelaide and Monash | those pairs |
-| 7 | The researchers page sends one request per filter change and draws whichever answer arrives last. Confirmed 29 Sep: typing "trotman" produced 7 requests, `?name=trotman` was answered at 18:49:40 and `?name=t` at 18:49:41, and the table kept the 50 rows for "t". The dropdowns do the same: at 19:01:23 `?university=UNSW+Sydney&level=E` was answered and at 19:01:24 `?university=UNSW+Sydney`, the later answer to the earlier request, and the level column then held C, D and E for the full ten seconds the test polls it. It is timing-dependent, so both tests can pass when run alone and fail in a full run. A guard on the request ticket, plus a short debounce on the name box, covers both | front end |
-| 8 | Three Monash test files stop `pytest tests` from starting at all: they import selenium, which is not in requirements.txt | Monash |
-| 9 | `tests/test_merge_publications.py` fails on Windows on an emoji the console cannot encode. Passes with `PYTHONIOENCODING=utf-8` | whoever owns merge_publications.py |
+| 1 | `test_doi_status_follows_the_cached_crossref_record` fails for one ANU paper. Isabel Wang's Journal of Business Ethics article (`10.1007/s10551-026-06277-w`) is exported as `forthcoming`, but the journal has since placed it in volume 208, issue 2, so Crossref now implies `published`. Fix: rerun ANU, then remove her row from the `FORTHCOMING` list in `tests/test_anu_final_data.py`. The result depends on the Crossref record saved in each machine's HTTP cache, so this test can pass on one machine and fail on another | ANU |
+| 2 | `validate_data.py all` exits non-zero for Monash on one row. The 341-author paper "Nonstandard Errors" has its author list cut short by Monash's page, ending in "320 others", so the list and `author_count` cannot agree | Monash |
+| 3 | `tests/test_merge_publications.py` (six tests) fails on Windows on an emoji the console cannot encode. Passes with `PYTHONIOENCODING=utf-8`; the setting is documented in the developer and installation guides. The script itself still crashes the same way when run directly without it | whoever owns merge_publications.py |
+| 4 | The browser tests skip silently wherever Playwright is not installed, so a green run does not show they were exercised. Check the skip count | everyone |
+
+Not a fault, but worth knowing: Andrew Terry is listed at both UNSW and USyd
+because he is employed at both, and Lisa Powell at Adelaide and at Monash are
+two different people. `test_no_researcher_appears_at_two_universities` allows
+both by name.
+
+### Resolved since 29 September
+
+| Was | Now |
+|---|---|
+| 32 researchers had no academic level | None. Titles are read from more places, `data/staff_overrides.csv` fills the rest, and teaching-focused staff, research students and two staff with no academic rank are no longer in the dataset |
+| UWA wrote publication statuses outside the agreed set | Every row is `published` or `forthcoming` |
+| Adelaide had 1 publication with no year, ANU 3 | No publication is missing a year |
+| USyd listed Peter Wolnizer's "Enabling accountability in museums" twice | One copy; the second is in `data/publication_exclusions.csv` |
+| Roger Simnett was counted at both UNSW and Monash | Monash only, through `data/staff_exclusions.csv` |
+| The researchers page drew whichever answer arrived last | It ignores answers that are not for the latest filter change |
+| Three Monash test files stopped `pytest tests` from starting | `selenium` is in `requirements.txt` |
 
 ## Sign-off log
 
