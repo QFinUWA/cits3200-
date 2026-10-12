@@ -1,122 +1,62 @@
-# cits3200-
+# Researcher Productivity Analysis Tool
 
-## Setup
+CITS3200 Professional Computing — Group 20
 
-Run `git config core.hooksPath .githooks` once after cloning — it strips co-author trailers from commit messages before they're made.
+A Python data pipeline and Flask website for exploring the research output of accounting and finance academics at the eight Group of Eight universities. The site provides researcher rankings, university comparisons, publication details and data exports. Administrators can edit records through Excel and refresh source data.
 
-Install the Python dependencies:
+## Documentation
+
+| I want to… | Start here |
+|---|---|
+| Install and run the application | [Installation guide](docs/INSTALLATION.md) |
+| Browse, filter, export or administer data | [User guide](docs/USER_GUIDE.md) |
+| Maintain the code or update the pipeline | [Developer guide](docs/DEVELOPER_GUIDE.md) |
+| Prepare the final code and Git logs | [Handover instructions](docs/HANDOVER.md) |
+| Understand the exported fields | [Data dictionary](docs/DATA_DICTIONARY.md) |
+| Run automated and manual checks | [Test plan](docs/TEST_PLAN.md) |
+
+## Quick start
+
+These commands are for a fresh checkout in Linux, macOS or Codespaces, using Python 3.12. Run them from the repository root. For Windows, see the installation guide.
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements.txt
+cp .env.example .env
 ```
 
-## Architecture
+Edit `.env`: set a new `SECRET_KEY` and `ADMIN_PASSWORD`. API keys are only needed when collecting or enriching data. Keep an existing `.env` when updating an installation.
 
-The project has two halves: a **data pipeline** that builds CSVs for each
-university, and a **website** that serves those CSVs from a SQLite database.
-
-```
-base_scrapers/<uni>.py      staff + publications from the university's own site
-        │                   (returns the core/schema.py contract)
-info/                       extra publications by ORCID: orcid, crossref, openalex
-        │
-core/clean.py               one shared clean + exclusion pass for every source
-        │
-enrichment/                 per-publication data joined by DOI / ISSN:
-        │                   openalex, crossref, abdc, clarivate (JIF), scimago
-screen.py                   drop papers outside the researcher's discipline
-        │
-core/schema.py validate     contract check
-        │
-export.py                   dedupe + write  final output/<uni>/*.csv
-        │
-load.py                     all final output CSVs  ->  site/research.db
-        │
-app.py  (+ admin.py)        Flask site and JSON API; admin login, edit, refresh
-```
-
-`run.py --uni <name>` runs everything from the adapter through `export.py` for
-one university. `load.py` then rebuilds the database from every university's
-output.
-
-### Where things live
-
-| Path | What it is |
-| --- | --- |
-| `base_scrapers/` | One adapter per G8 university. The only university-specific code. |
-| `core/` | Shared config, cached HTTP (`cache/http/`), cleaning, the adapter contract, title normalisation. |
-| `info/` | Retrieval of *extra* publications linked to a researcher's ORCID. |
-| `enrichment/` | Journal and citation fields added to publications that already exist. |
-| `screen.py`, `export.py` | Discipline screening, then dedupe and CSV export. The same for every university. |
-| `data/` | Reference lists (ABDC, Scimago) and human-reviewed overrides and exclusions. |
-| `final output/<uni>/` | Pipeline output: `*_staff.csv`, `*_publications.csv`, `*_journals.csv`, `*_harvest.csv`. |
-| `load.py`, `models.py` | CSV to SQLite loader and the table definitions (researcher, journal, publication, harvest). |
-| `app.py`, `admin.py`, `site/` | Web server, admin blueprint and the static front end. |
-| `refresh_manager.py` | The admin "refresh" button: runs every adapter, then `load.py` into a staging DB, then swaps it in. The old DB is kept in `backups/`. |
-| `tests/` | `python -m pytest`. See `docs/TEST_PLAN.md`. |
-
-### Adding a university
-
-Create `base_scrapers/<uni>.py` that defines `ROR` and a
-`collect(verbose=True, refresh=False)` function returning `(records, pubs)` in
-the shape described in `core/schema.py`. Nothing else in the pipeline needs to
-change. Then run `python run.py --uni <uni>` and `python load.py`.
-
-### Fixing bad data
-
-Fix errors in the pipeline, or in the review files in `data/` (overrides and
-exclusions), and rerun. Never edit files in `final output/` by hand, because
-the next run overwrites them.
-
-### Refreshing data
-
-The admin refresh button calls `run.py --refresh` for each university. This
-bypasses the HTTP cache on purpose so the data is current, which is why it is
-much slower than a normal `run.py`, which reuses cached responses.
-
-### Configuration
-
-Copy `.env.example` to `.env` and set `OPENALEX_API_KEY`,
-`CLARIVATE_API_KEY`, `SECRET_KEY` and `ADMIN_PASSWORD`. On a hosted server,
-`SECRET_KEY` must be set. Without it the admin session falls back to an
-insecure development key.
-
-## University adapters
-
-Run one university through the shared retrieval, enrichment, screening and
-export pipeline:
+Load the supplied exports and start the local development server:
 
 ```bash
-python run.py --uni unimelb --ror 01ej9dk98
-python run.py --uni uwa --ror 03qn8fb07
-python run.py --uni anu --ror 019wvm592
+python load.py
+python -m flask --app app run --host 127.0.0.1 --port 5000
 ```
 
-The UniMelb adapter uses the official Faculty of Business and Economics staff
-lists and Minerva Access. The UWA adapter uses the official Pure organisation,
-person and publication pages. The ANU adapter uses the public RSA and RSFAS
-staff directories and profile pages, not the Pure-based research portal.
-All return the shared `core.schema` contract; Crossref, OpenAlex, ABDC,
-Clarivate and Scimago remain shared pipeline steps.
+Open <http://127.0.0.1:5000>. In Codespaces, open port **5000** from the **Ports** tab. Stop the server with **Ctrl+C**. `load.py` rebuilds the database; preserve existing data before using it on an established installation.
 
-For UniMelb, the official FBE directory is the staff ground truth. The adapter
-first resolves exact Minerva internal author IDs across both departmental
-collections, then tries exact family-first author searches across Minerva.
-Staff still lacking an identifier are matched to OpenAlex only when an exact
-name alias is associated with the UniMelb ROR. Ambiguous identities are left
-blank and listed in `unimelb_adapter_quality.json`; they are never reported as
-confirmed zero-publication researchers.
+## How the system works
 
-The UniMelb run also writes `unimelb_identity_review.csv`. For an identity that
-a human can verify, copy the selected identifier into
-`data/unimelb_identity_overrides.csv`, keep the official profile URL and name,
-set `review_decision` to `approved`, and record an evidence URL. The next normal
-`python run.py --uni unimelb` run applies that decision automatically. Rows not
-explicitly approved are ignored, so merely listing a candidate cannot change
-the production dataset.
+University adapters collect staff and publications. Shared processing reconciles, cleans, screens and enriches records. `export.py` writes tables to `final output/<university>/`; `load.py` builds `site/research.db`; Flask serves the website and API.
 
-Staff without a publication are dropped from the export by default. Use
-`--keep-empty-staff` to retain every official staff member. To apply the same
-rule to existing outputs without re-running the pipeline, use
-`python drop_empty_staff.py` (add `--dry-run` to preview). Generated files are
-written under `final output/<uni>/`.
+| Area | Location |
+|---|---|
+| University collection | `base_scrapers/` |
+| Shared processing and enrichment | `core/`, `info/`, `enrichment/`, `screen.py` |
+| Exported data and database build | `final output/`, `export.py`, `load.py`, `models.py` |
+| Website and administration | `app.py`, `admin.py`, `site/` |
+| Refresh orchestration | `refresh_manager.py` |
+
+A publication row represents one researcher–publication pair; co-authors can each have a row for the same paper. Missing indicators mean unavailable data. See the user guide and data dictionary for interpretation.
+
+## Updating data
+
+Fresh collection requires the reference datasets and provider configuration described in the installation guide. Example without Clarivate enrichment:
+
+```bash
+python run.py --uni usyd --skip-clarivate
+```
+
+Validate generated data before loading or releasing it. Administrator spreadsheet edits must also be retained in the pipeline or reviewed override files if they are to survive a rebuild. See the developer guide for the complete workflow.
