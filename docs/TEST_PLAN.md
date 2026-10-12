@@ -20,7 +20,7 @@ python app.py                                # then the manual checklist below
 
 On Windows, run `$env:PYTHONIOENCODING = "utf-8"` in the terminal first.
 Without it six tests in `tests/test_merge_publications.py` fail on an emoji
-the default console encoding cannot print (issue 2 below).
+the default console encoding cannot print (issue 1 below).
 
 The browser tests need `pip install playwright` and `playwright install
 chromium`; they skip themselves when it is not installed. The database tests
@@ -104,15 +104,18 @@ width. Do it before each client demo and record the result at the bottom.
 ## Known open issues
 
 Measured on 12 October with `python -m pytest tests -q`, Playwright installed:
-1,020 passed, 1 failed, none skipped (with the Windows setting above; 7 failed
+1,021 passed, none failed, none skipped (with the Windows setting above; 6 fail
 without it). On a machine without Playwright the 14 browser tests are skipped
-as one module, giving 1,006 passed, 1 failed, 1 skipped.
+as one module. On a fresh clone with no HTTP cache, two ANU tests that read
+the cache also skip: 1,019 passed, 2 skipped.
+
+No test is failing. What is left are conditions to know about when running them.
 
 | # | Issue | Owner |
 |---|---|---|
-| 1 | `test_doi_status_follows_the_cached_crossref_record` fails for one ANU paper. Isabel Wang's Journal of Business Ethics article (`10.1007/s10551-026-06277-w`) is exported as `forthcoming`, but the journal has since placed it in volume 208, issue 2, so Crossref now implies `published`. Fix: rerun ANU, then remove her row from the `FORTHCOMING` list in `tests/test_anu_final_data.py`. The result depends on the Crossref record saved in each machine's HTTP cache, so this test can pass on one machine and fail on another | ANU |
-| 2 | `tests/test_merge_publications.py` (six tests) fails on Windows on an emoji the console cannot encode. Passes with `PYTHONIOENCODING=utf-8`; the setting is documented in the developer and installation guides. The script itself still crashes the same way when run directly without it | whoever owns merge_publications.py |
-| 3 | The browser tests skip silently wherever Playwright is not installed, so a green run there does not show they were exercised. They were run and passed on 12 October; on any other machine, check the skip count before relying on a result | everyone |
+| 1 | `tests/test_merge_publications.py` (six tests) fails on Windows on an emoji the console cannot encode. Passes with `PYTHONIOENCODING=utf-8`; the setting is documented in the developer and installation guides. The script itself still crashes the same way when run directly without it | whoever owns merge_publications.py |
+| 2 | The browser tests skip silently wherever Playwright is not installed, so a green run there does not show they were exercised. They were run and passed on 12 October; on any other machine, check the skip count before relying on a result | everyone |
+| 3 | `test_doi_status_follows_the_cached_crossref_record` compares the ANU output with the Crossref record saved in each machine's HTTP cache, so it can pass on one machine and fail on another, and it will fail again whenever a paper listed as forthcoming is assigned to an issue. When that happens: rerun ANU, then remove that paper from the `FORTHCOMING` list in `tests/test_anu_final_data.py` | ANU |
 
 Not a fault, but worth knowing: Andrew Terry is listed at both UNSW and USyd
 because he is employed at both, and Lisa Powell at Adelaide and at Monash are
@@ -131,6 +134,7 @@ both by name.
 | The researchers page drew whichever answer arrived last | It ignores answers that are not for the latest filter change |
 | Three Monash test files stopped `pytest tests` from starting | `selenium` is in `requirements.txt` |
 | `validate_data.py all` failed for Monash on one row (found 12 October) | Passes for all eight. Two author lists that arrived garbled are corrected in `data/overrides.csv`: "Nonstandard errors", which carried Monash's "320 others" link text as an extra name, and one paper where OpenAlex records an author's name with an ORCID inside it |
+| One ANU paper was exported as `forthcoming` after its journal had placed it in an issue (Isabel Wang, *Journal of Business Ethics*, `10.1007/s10551-026-06277-w`; found 12 October) | ANU regenerated: the row is `published`, and the forthcoming list in `tests/test_anu_final_data.py` now has eight rows |
 
 ## Sign-off log
 
