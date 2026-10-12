@@ -20,7 +20,7 @@ python app.py                                # then the manual checklist below
 
 On Windows, run `$env:PYTHONIOENCODING = "utf-8"` in the terminal first.
 Without it six tests in `tests/test_merge_publications.py` fail on an emoji
-the default console encoding cannot print (issue 3 below).
+the default console encoding cannot print (issue 2 below).
 
 The browser tests need `pip install playwright` and `playwright install
 chromium`; they skip themselves when it is not installed. The database tests
@@ -96,7 +96,7 @@ width. Do it before each client demo and record the result at the bottom.
 
 | Acceptance test | How it is tested | Status on 12 October |
 |---|---|---|
-| A: all 8 universities scraped | `validate_data.py all`, `test_exported_data.py` | `test_exported_data.py` passes for all eight. `validate_data.py all` reports one failure, on one Monash row (issue 2) |
+| A: all 8 universities scraped | `validate_data.py all`, `test_exported_data.py` | Passing: `test_exported_data.py` passes for all eight, and `validate_data.py all` exits cleanly with no failures (warnings only) |
 | B: academic levels mapped | `test_academic_levels_are_A_to_E`, `test_every_researcher_has_an_academic_level` | Passing: all 521 researchers have a level |
 | C: website works | `test_site_browser.py` plus the checklist above | Passing: all 14 browser tests pass in Chromium against the real data, and the API tests pass. The wrong-rows fault they caught on 29 September is fixed. The manual checklist (Firefox, phone width, appearance) is still to be recorded in the sign-off log |
 | D: no duplicate publications | `test_no_duplicate_publications`, `test_a_doi_is_one_paper` | Passing |
@@ -111,9 +111,8 @@ as one module, giving 1,006 passed, 1 failed, 1 skipped.
 | # | Issue | Owner |
 |---|---|---|
 | 1 | `test_doi_status_follows_the_cached_crossref_record` fails for one ANU paper. Isabel Wang's Journal of Business Ethics article (`10.1007/s10551-026-06277-w`) is exported as `forthcoming`, but the journal has since placed it in volume 208, issue 2, so Crossref now implies `published`. Fix: rerun ANU, then remove her row from the `FORTHCOMING` list in `tests/test_anu_final_data.py`. The result depends on the Crossref record saved in each machine's HTTP cache, so this test can pass on one machine and fail on another | ANU |
-| 2 | `validate_data.py all` exits non-zero for Monash on one row. The 341-author paper "Nonstandard Errors" has its author list cut short by Monash's page, ending in "320 others", so the list and `author_count` cannot agree | Monash |
-| 3 | `tests/test_merge_publications.py` (six tests) fails on Windows on an emoji the console cannot encode. Passes with `PYTHONIOENCODING=utf-8`; the setting is documented in the developer and installation guides. The script itself still crashes the same way when run directly without it | whoever owns merge_publications.py |
-| 4 | The browser tests skip silently wherever Playwright is not installed, so a green run there does not show they were exercised. They were run and passed on 12 October; on any other machine, check the skip count before relying on a result | everyone |
+| 2 | `tests/test_merge_publications.py` (six tests) fails on Windows on an emoji the console cannot encode. Passes with `PYTHONIOENCODING=utf-8`; the setting is documented in the developer and installation guides. The script itself still crashes the same way when run directly without it | whoever owns merge_publications.py |
+| 3 | The browser tests skip silently wherever Playwright is not installed, so a green run there does not show they were exercised. They were run and passed on 12 October; on any other machine, check the skip count before relying on a result | everyone |
 
 Not a fault, but worth knowing: Andrew Terry is listed at both UNSW and USyd
 because he is employed at both, and Lisa Powell at Adelaide and at Monash are
@@ -131,6 +130,7 @@ both by name.
 | Roger Simnett was counted at both UNSW and Monash | Monash only, through `data/staff_exclusions.csv` |
 | The researchers page drew whichever answer arrived last | It ignores answers that are not for the latest filter change |
 | Three Monash test files stopped `pytest tests` from starting | `selenium` is in `requirements.txt` |
+| `validate_data.py all` failed for Monash on one row (found 12 October) | Passes for all eight. Two author lists that arrived garbled are corrected in `data/overrides.csv`: "Nonstandard errors", which carried Monash's "320 others" link text as an extra name, and one paper where OpenAlex records an author's name with an ORCID inside it |
 
 ## Sign-off log
 
