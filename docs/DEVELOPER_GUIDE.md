@@ -105,12 +105,11 @@ Implement `base_scrapers/<code>.py` with a `collect(...)` function returning `(r
 | `GET /api/researchers/<id>/publications` | Their publication records |
 | `GET /downloads/<entity>.csv` | Public full export: `publications`, `researchers`, `journals` |
 | `GET /api/admin/<entity>.xlsx` | Authenticated Excel download |
-| `POST /api/admin/<entity>?dry_run=1` | Authenticated upload preview; multipart field `file` |
-| `POST /api/admin/<entity>?dry_run=0` | Authenticated committed upload |
+| `POST /api/admin/<entity>` | Authenticated upload, saved immediately; multipart field `file` |
 | `GET /api/admin/refresh/status` | Authenticated current refresh status |
 | `POST /api/admin/refresh` | Authenticated refresh; JSON `{"source":"usyd"}` or `{}` for all |
 
-The API's university filter uses the stored university name, not the CLI adapter code. Spreadsheet uploads update existing IDs or insert blank-ID rows. The server rolls back the transaction if a row reports an error or if dry-run mode is enabled. Journal-owned `quality_rank` and `sjr_quartile` propagate to associated publications. Deleting a spreadsheet row is not a database deletion operation.
+The API's university filter uses the stored university name, not the CLI adapter code. Spreadsheet uploads update existing IDs or insert blank-ID rows and are saved immediately; the admin page has no preview step. Known limitation: `admin.py` wraps each row in a savepoint and calls `rollback()` when a row reports an error, but with SQLite and Python's `sqlite3` driver each savepoint is committed as it is released, so rows before a failing row stay saved. For the same reason the `dry_run=1` query parameter still accepted by `admin.py` does not discard changes and is unsupported; the page no longer sends it. Journal-owned `quality_rank` and `sjr_quartile` propagate to associated publications. Deleting a spreadsheet row is not a database deletion operation.
 
 ## Refresh and runtime logs
 
