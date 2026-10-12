@@ -61,6 +61,14 @@ Generated CSV edits alone are not persistent. Administrative database edits like
 
 ## Test a change
 
+On Windows, switch Python's output to UTF-8 in the terminal before running tests or pipeline scripts. Several scripts print characters the default Windows console encoding cannot represent, and they stop with `UnicodeEncodeError: 'charmap' codec can't encode character ...`. Without this setting, six tests in `tests/test_merge_publications.py` fail for that reason alone. The setting lasts for that terminal session:
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+```
+
+Linux, macOS and Codespaces terminals already use UTF-8 and need no change.
+
 Install testing dependencies separately:
 
 ```bash
