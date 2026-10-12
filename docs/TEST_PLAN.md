@@ -98,20 +98,22 @@ width. Do it before each client demo and record the result at the bottom.
 |---|---|---|
 | A: all 8 universities scraped | `validate_data.py all`, `test_exported_data.py` | `test_exported_data.py` passes for all eight. `validate_data.py all` reports one failure, on one Monash row (issue 2) |
 | B: academic levels mapped | `test_academic_levels_are_A_to_E`, `test_every_researcher_has_an_academic_level` | Passing: all 521 researchers have a level |
-| C: website works | `test_site_browser.py` plus the checklist above | The API tests pass. The browser tests were **not run** for this update because Playwright was not installed on the machine used (issue 4). The wrong-rows fault they caught on 29 September has since been fixed |
+| C: website works | `test_site_browser.py` plus the checklist above | Passing: all 14 browser tests pass in Chromium against the real data, and the API tests pass. The wrong-rows fault they caught on 29 September is fixed. The manual checklist (Firefox, phone width, appearance) is still to be recorded in the sign-off log |
 | D: no duplicate publications | `test_no_duplicate_publications`, `test_a_doi_is_one_paper` | Passing |
 
 ## Known open issues
 
-Measured on 12 October with `python -m pytest tests -q`: 1,006 passed, 1 failed,
-1 skipped (with the Windows setting above; 7 failed without it).
+Measured on 12 October with `python -m pytest tests -q`, Playwright installed:
+1,020 passed, 1 failed, none skipped (with the Windows setting above; 7 failed
+without it). On a machine without Playwright the 14 browser tests are skipped
+as one module, giving 1,006 passed, 1 failed, 1 skipped.
 
 | # | Issue | Owner |
 |---|---|---|
 | 1 | `test_doi_status_follows_the_cached_crossref_record` fails for one ANU paper. Isabel Wang's Journal of Business Ethics article (`10.1007/s10551-026-06277-w`) is exported as `forthcoming`, but the journal has since placed it in volume 208, issue 2, so Crossref now implies `published`. Fix: rerun ANU, then remove her row from the `FORTHCOMING` list in `tests/test_anu_final_data.py`. The result depends on the Crossref record saved in each machine's HTTP cache, so this test can pass on one machine and fail on another | ANU |
 | 2 | `validate_data.py all` exits non-zero for Monash on one row. The 341-author paper "Nonstandard Errors" has its author list cut short by Monash's page, ending in "320 others", so the list and `author_count` cannot agree | Monash |
 | 3 | `tests/test_merge_publications.py` (six tests) fails on Windows on an emoji the console cannot encode. Passes with `PYTHONIOENCODING=utf-8`; the setting is documented in the developer and installation guides. The script itself still crashes the same way when run directly without it | whoever owns merge_publications.py |
-| 4 | The browser tests skip silently wherever Playwright is not installed, so a green run does not show they were exercised. Check the skip count | everyone |
+| 4 | The browser tests skip silently wherever Playwright is not installed, so a green run there does not show they were exercised. They were run and passed on 12 October; on any other machine, check the skip count before relying on a result | everyone |
 
 Not a fault, but worth knowing: Andrew Terry is listed at both UNSW and USyd
 because he is employed at both, and Lisa Powell at Adelaide and at Monash are
